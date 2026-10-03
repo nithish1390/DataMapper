@@ -1,1 +1,18 @@
 backend/.env
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# local secrets and saved sessions
+.env
+*.mapsheet.json
+*.dmsession.json
+
+# build / cache output
+node_modules/
+dist/
+.angular/
+__pycache__/
+*.pyc
