@@ -113,6 +113,9 @@
     </div>
 
     <div class="fb-right">
+      <div class="fb-note" *ngIf="r.mapping?.note as note" [class.ai]="r.mapping?.origin === 'ai'">
+        <span class="fb-note-tag">{{ r.mapping?.origin === 'ai' ? 'AI' : 'Note' }}</span> {{ note }}
+      </div>
       <div class="fb-row-title">
         <span class="kind-chip" [attr.data-kind]="r.kind">{{ kindLabel(r) }}</span>
         <strong class="mono ellipsis" [title]="r.node.path">{{ r.label }}</strong>

@@ -1,3 +1,39 @@
+# Changes — round 20: mapping sheet rules + AI fallback
+
+- Sheet rules are now turned into formulas by `backend/app/services/sheet_rules.py`, replacing the old
+  placeholder compiler. That compiler rejected plain-language rules, and silently garbled `IF(a = 'x', …)`
+  by turning the condition into a string.
+  - Understood locally: curly quotes (‘TRF’); `If X = 'A' then map 'B' else map 'C'` (with `.`/`,` separators,
+    "otherwise", nested "else if"); is / equals / is not / `!=` / `<>` / greater than; is empty / is present;
+    `in ('A','B')`; and / or; "Hardcode / Default value / Constant …"; "Copy from X"; "Direct" (uses the source
+    column); and rules that already are formulas.
+  - Field names are resolved against the source tree (full path, partial path, or a unique name) and written
+    relative to the target's loop item. Example: `If PmtInf/PmtMtd = ‘TRF’. Then map ‘TRF’ else map ‘HIGH’` →
+    `if(PmtMtd = 'TRF', 'TRF', 'HIGH')`.
+  - **For-Each added automatically** on a repeating target parent (e.g. PmtInf) when the rule reads fields of
+    the matching repeating source element, so every occurrence is mapped, not just the first.
+  - **Every formula is checked**: it must parse, and its paths must exist. Rules that can't be understood or
+    that fail the check go to the **LLM in one request**. The request includes each target's loop context,
+    the relevant source fields and the formula language; the LLM's answers are checked too, and rejected ones
+    are sent back once with the error. With no LLM configured, those rows are marked for review with the reason.
+- **Unclear rules go to the LLM too**, not only rules that can't be parsed. Two cases count as unclear: a
+  field name that matches several source fields (e.g. `Nm`), and unquoted words that would silently become
+  fixed text. The parser's formula is sent along as a "local draft" for the LLM to confirm or fix. If the
+  LLM is unavailable or can't do better, the draft is kept and the row is marked Review with the reason.
+- **The LLM is told what it can use**, so it picks the right method:
+  - every built-in function from the Mapping Builder (group, template and description, sent by the UI from
+    the same catalogue as the Functions tab, now in `core/models/function-catalog.ts`);
+  - the **custom functions** uploaded as .jar / .java (method, parameters, return type, library name);
+  - the **variables** (global and local, with type and value);
+  - operators, path rules and the XSLT version.
+  The LLM answers with the formula and the method it chose (built-in / custom / variable / literal / path).
+  Answers that use a function not in the list are rejected and sent back once.
+- The import dialog shows the **result per row**: Rule / AI / Review, the rule, the formula and the
+  reason. Click a row to open that field. Filters: All / AI / Review.
+- The Mapping Builder shows a mapping's note, e.g. the AI's explanation, above the formula.
+
+---
+
 # Changes — round 19: mapping sheet export fixed
 
 - **Export mapping sheet** produced only the header line. It still read the old drag-and-drop input lists,

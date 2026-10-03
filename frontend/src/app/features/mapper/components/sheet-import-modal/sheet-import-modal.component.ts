@@ -4,7 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../../../core/services/api.service';
 import { WorkspaceService } from '../../../../core/services/workspace.service';
 import { ToastService } from '../../../../core/services/toast.service';
-import { SheetImportRow } from '../../../../core/models/api.models';
+import { SheetImportRow, SheetRowReport } from '../../../../core/models/api.models';
+import { functionCatalog } from '../../../../core/models/function-catalog';
 
 @Component({
   selector: 'app-sheet-import-modal',
@@ -24,6 +25,10 @@ export class SheetImportModalComponent {
   colSourcePath = -1;
   colTargetPath = -1;
   colTransform = -1;
+  /** After applying: how each row was mapped (shown until the dialog is closed). */
+  report = signal<SheetRowReport[]>([]);
+  applying = signal(false);
+  reportFilter: 'all' | 'ai' | 'review' = 'all';
 
   get headers(): string[] {
     return this.rows()[this.headerRow - 1] ?? [];
@@ -47,8 +52,23 @@ export class SheetImportModalComponent {
     this.open.set(true);
   }
 
+  shownReport(): SheetRowReport[] {
+    return this.reportFilter === 'all' ? this.report() : this.report().filter((r) => r.method === this.reportFilter);
+  }
+
+  count(method: SheetRowReport['method']): number {
+    return this.report().filter((r) => r.method === method).length;
+  }
+
+  goTo(target: string): void {
+    this.reset();
+    this.workspace.revealTarget(target);
+  }
+
   reset(): void {
     this.open.set(false);
+    this.report.set([]);
+    this.applying.set(false);
     this.file = null;
     this.sheetNames.set([]);
     this.rows.set([]);
@@ -119,17 +139,30 @@ export class SheetImportModalComponent {
       }))
       .filter((r) => r.target_path);
 
-    this.api.applySheet(this.workspace.toWorkspace(), rows, this.workspace.llm()).subscribe({
+    this.applying.set(true);
+    // imported sheets use XSLT 2.0, so the AI may use every function (2.0 ones included)
+    const ws = { ...this.workspace.toWorkspace() };
+    ws.project = { ...ws.project, xslt_version: '2.0' };
+    this.api.applySheet(ws, rows, this.workspace.llm(), functionCatalog(true)).subscribe({
       next: (res) => {
+        this.applying.set(false);
         this.workspace.mappings.set(res.mappings);
+        if (res.structures?.length) this.workspace.structures.update((list) => [...list, ...res.structures!]);
         this.workspace.setXsltVersion('2.0');  // imported sheets default to XSLT 2.0
-        this.reset();
-        this.toast.show(`Applied ${res.mappings.length} mapping(s) from sheet (XSLT 2.0).`);
-        if (res.notes.length) {
-          this.toast.show(`${res.notes.length} row(s) need a look — check the mapping notes.`, true);
-        }
+        this.workspace.requestAnalysis();
+        const rep = res.report ?? [];
+        const ai = rep.filter((r) => r.method === 'ai').length;
+        const review = rep.filter((r) => r.method === 'review').length;
+        this.toast.show(`Applied ${rep.length} row(s): ${rep.length - ai - review} by rule, ${ai} by AI` +
+          (review ? `, ${review} need review.` : '.'), review > 0);
+        this.reportFilter = review ? 'review' : 'all';
+        this.report.set(rep);
+        this.rows.set([]);
       },
-      error: (err) => this.toast.show(`Import failed: ${err.error?.detail ?? err.message}`, true),
+      error: (err) => {
+        this.applying.set(false);
+        this.toast.show(`Import failed: ${err.error?.detail ?? err.message}`, true);
+      },
     });
   }
 }

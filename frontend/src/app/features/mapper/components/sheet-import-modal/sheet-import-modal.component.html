@@ -78,12 +78,40 @@
         Source path is optional: leave it blank and put an XPath-style reference or a plain instruction
         (e.g. "Map from GrpHdr/MsgId", "UPPERCASE(GrpHdr/Nm)") in the Transform column instead — it gets
         parsed and resolved against your source tree, falling back to the AI for anything it can't resolve.
+        Plain-language rules work too, e.g. "If PmtInf/PmtMtd = 'TRF' then map 'TRF' else map 'HIGH'", "Hardcode to SEPA",
+        "Copy from MsgId", "Direct". Each formula is checked; what fails or can't be parsed is mapped by the AI
+        (Settings → LLM API) and checked again.
       </div>
     </ng-container>
 
+    <div *ngIf="report().length" class="sheet-report">
+      <div class="sheet-report-head">
+        <strong>Import result</strong>
+        <div class="tabbtns">
+          <button [class.active]="reportFilter === 'all'" (click)="reportFilter = 'all'">All {{ report().length }}</button>
+          <button [class.active]="reportFilter === 'ai'" (click)="reportFilter = 'ai'">AI {{ count('ai') }}</button>
+          <button [class.active]="reportFilter === 'review'" (click)="reportFilter = 'review'">Review {{ count('review') }}</button>
+        </div>
+      </div>
+      <div class="sheet-report-rows">
+        <div *ngFor="let r of shownReport()" class="sheet-rep" [attr.data-m]="r.method" (click)="goTo(r.target)"
+             title="Show in the Target tree">
+          <span class="sheet-rep-m">{{ r.method === 'rule' ? 'Rule' : r.method === 'ai' ? 'AI' : 'Review' }}</span>
+          <div class="sheet-rep-body">
+            <div class="maprow-path">{{ r.target.replace('[]', '').split('.').slice(-3).join('/') }}</div>
+            <div class="muted" *ngIf="r.rule">rule: {{ r.rule }}</div>
+            <div *ngIf="r.formula"><code>{{ r.formula }}</code></div>
+            <div class="sheet-rep-note" *ngIf="r.note">{{ r.note }}</div>
+          </div>
+        </div>
+        <div *ngIf="!shownReport().length" class="hint">Nothing here.</div>
+      </div>
+    </div>
+
     <div class="modal-actions">
-      <button class="ghost" (click)="reset()">Cancel</button>
-      <button class="primary" [disabled]="!rows().length" (click)="apply()">Apply mapping sheet</button>
+      <button class="ghost" (click)="reset()">{{ report().length ? 'Close' : 'Cancel' }}</button>
+      <button class="primary" *ngIf="!report().length" [disabled]="!rows().length || applying()" (click)="apply()">
+        {{ applying() ? 'Mapping… (rules, then AI for the rest)' : 'Apply mapping sheet' }}</button>
     </div>
   </div>
 </div>

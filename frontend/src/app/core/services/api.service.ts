@@ -87,8 +87,8 @@ export class ApiService {
     return this.http.post<SheetPreview>(`${this.base}/sheet/preview`, form, { params });
   }
 
-  applySheet(workspace: MappingWorkspace, rows: SheetImportRow[],
-             llm: LlmProviderConfig): Observable<SheetImportResult> {
-    return this.http.post<SheetImportResult>(`${this.base}/sheet/apply`, { workspace, rows, llm });
+  applySheet(workspace: MappingWorkspace, rows: SheetImportRow[], llm: LlmProviderConfig,
+             functions: { group: string; name: string; template: string; desc: string }[] = []): Observable<SheetImportResult> {
+    return this.http.post<SheetImportResult>(`${this.base}/sheet/apply`, { workspace, rows, llm, functions });
   }
 }

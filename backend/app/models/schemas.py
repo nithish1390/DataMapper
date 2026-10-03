@@ -318,16 +318,39 @@ class SheetImportRow(BaseModel):
     transform: Optional[str] = None
 
 
+class CatalogFunction(BaseModel):
+    """One built-in function as the Mapping Builder offers it (sent so the AI uses exactly these)."""
+
+    group: str = ""
+    name: str
+    template: str = ""
+    desc: str = ""
+
+
 class SheetImportRequest(BaseModel):
     workspace: MappingWorkspace
     rows: list[SheetImportRow]
     llm: LlmProviderConfig = Field(default_factory=LlmProviderConfig)
+    functions: list[CatalogFunction] = Field(default_factory=list)
+
+
+class SheetRowReport(BaseModel):
+    """How one sheet row was mapped: by the rule parser, by the AI, or left for review."""
+
+    target: str
+    source: str = ""
+    rule: str = ""
+    formula: str = ""
+    method: Literal["rule", "ai", "review"] = "rule"
+    note: str = ""
 
 
 class SheetImportResult(BaseModel):
     mappings: list[MappingRule]
     target_fields_added: list[FieldNode]
     notes: list[str]
+    structures: list["TargetStructure"] = Field(default_factory=list)  # For-Each added for repeating targets
+    report: list[SheetRowReport] = Field(default_factory=list)
 
 
 class SheetPreview(BaseModel):

@@ -236,10 +236,23 @@ export interface SheetImportRow {
   transform?: string | null;
 }
 
+export interface SheetRowReport {
+  target: string;
+  source: string;
+  rule: string;
+  formula: string;
+  /** rule = understood by the sheet parser, ai = mapped by the LLM, review = needs a look */
+  method: 'rule' | 'ai' | 'review';
+  note: string;
+}
+
 export interface SheetImportResult {
   mappings: MappingRule[];
   target_fields_added: FieldNode[];
   notes: string[];
+  /** For-Each statements added for repeating target elements. */
+  structures?: TargetStructure[];
+  report?: SheetRowReport[];
 }
 
 export interface SheetPreview {

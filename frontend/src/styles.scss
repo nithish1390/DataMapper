@@ -477,3 +477,20 @@ button.primary:hover { background: color-mix(in srgb, var(--accent) 85%, black);
 .edit-btn { font-weight: 600; color: var(--accent) !important; }
 .input-editor { font-family: var(--mono) !important; font-size: 11.5px !important; line-height: 1.45; resize: vertical; min-height: 90px; }
 .editor-actions { display: flex; gap: 6px; }
+
+/* mapping sheet import: per-row result */
+.sheet-report { margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.sheet-report-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.sheet-report-rows { max-height: 320px; overflow: auto; }
+.sheet-rep { display: flex; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 11.5px; }
+.sheet-rep:hover { background: var(--panel-soft); }
+.sheet-rep-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sheet-rep-body code { white-space: pre-wrap; word-break: break-word; }
+.sheet-rep-m { flex: 0 0 48px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--success); }
+.sheet-rep[data-m="ai"] .sheet-rep-m { color: var(--wire-ai); }
+.sheet-rep[data-m="review"] .sheet-rep-m { color: var(--danger); }
+.sheet-rep-note { color: var(--ink-soft); }
+.sheet-rep[data-m="review"] .sheet-rep-note { color: var(--danger); }
+.fb-note { font-size: 11px; padding: 4px 8px; margin-bottom: 6px; border-radius: var(--radius); background: var(--panel-soft); border: 1px solid var(--border); }
+.fb-note.ai { border-color: var(--wire-ai); }
+.fb-note-tag { font-weight: 700; font-size: 10px; margin-right: 4px; color: var(--wire-ai); }
