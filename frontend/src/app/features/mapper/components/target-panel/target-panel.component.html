@@ -1,0 +1,34 @@
+<div class="rail-top">
+  <h2>Target <span class="muted" *ngIf="workspace.target().namespace" [title]="workspace.target().namespace!">· ns</span></h2>
+  <div style="display: flex; gap: 4px; align-items: center;">
+    <button class="ghost tiny" (click)="addRootField()">+ field</button>
+    <button class="ghost tiny" [class.on]="showLoader()" (click)="showLoader.set(!showLoader())">⚙ Schema</button>
+    <select [ngModel]="workspace.target().type" (ngModelChange)="workspace.setTargetType($event)"
+            style="width: auto; max-width: 124px;">
+      <option *ngFor="let f of formats" [value]="f.value">{{ f.label }}</option>
+    </select>
+  </div>
+</div>
+
+<div *ngIf="showLoader()" class="src-loader" style="border-bottom: 1px solid var(--border);">
+  <div class="tabbtns">
+    <button [class.active]="!pasteMode" (click)="pasteMode = false">Upload</button>
+    <button [class.active]="pasteMode" (click)="pasteMode = true">Paste</button>
+  </div>
+  <div *ngIf="!pasteMode">
+    <div class="dropzone" (click)="fileInput.click()">
+      Drop file or click to browse
+      <span *ngIf="workspace.target().raw"> · {{ workspace.target().raw.length }} chars loaded</span>
+    </div>
+    <input #fileInput type="file" style="display:none" (change)="onFile($event)">
+  </div>
+  <div *ngIf="pasteMode">
+    <textarea rows="6" [(ngModel)]="pasteText" placeholder="Paste schema or sample here"></textarea>
+  </div>
+  <button class="primary small" style="width: 100%;" (click)="parse()">Parse fields</button>
+</div>
+
+<div class="rail-scroll" style="overflow: auto; flex: 1; min-height: 0; padding: 0;">
+  <app-target-mapper *ngIf="workspace.target().ready"></app-target-mapper>
+  <div *ngIf="!workspace.target().ready" class="hint" style="padding: 12px;">Load and parse the target schema above.</div>
+</div>

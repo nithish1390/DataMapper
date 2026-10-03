@@ -1,0 +1,83 @@
+<div class="bottom-tabs">
+  <button [class.active]="activeTab() === 'processor'" (click)="setTab('processor')">Processor class</button>
+  <button [class.active]="activeTab() === 'xslt'" (click)="setTab('xslt')">XSLT</button>
+  <button [class.active]="activeTab() === 'test'" (click)="setTab('test')">Test / Run</button>
+</div>
+
+<div style="overflow: auto; flex: 1;">
+  <ng-container [ngSwitch]="activeTab()">
+
+    <div *ngSwitchCase="'processor'">
+      <div style="display: flex; justify-content: flex-end; padding: 6px 10px 0;">
+        <button class="ghost small" (click)="copy(processorCode())">Copy</button>
+      </div>
+      <pre class="codeprev">{{ processorCode() }}</pre>
+    </div>
+
+    <div *ngSwitchCase="'xslt'">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px 0;">
+        <div class="tabbtns" title="Generated stylesheet version (also used by Test / Run and the Mapping Builder)">
+          <span class="muted" style="align-self: center; margin-right: 4px;">XSLT version</span>
+          <button [class.active]="!workspace.isXslt2()" (click)="workspace.setXsltVersion('1.0')">1.0</button>
+          <button [class.active]="workspace.isXslt2()" (click)="workspace.setXsltVersion('2.0')">2.0</button>
+        </div>
+        <button class="ghost small" (click)="copy(xsltCode())">Copy</button>
+      </div>
+      <pre class="codeprev">{{ xsltCode() }}</pre>
+    </div>
+
+    <div *ngSwitchCase="'test'" style="display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;">
+      <div *ngFor="let s of workspace.sources()"
+           style="border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; background: var(--panel-soft);">
+        <label style="font-size: 11px; color: var(--ink-soft); display: block; margin-bottom: 4px; font-weight: 600;">
+          {{ s.label }} ({{ s.type }})
+        </label>
+        <textarea rows="4" [ngModel]="sampleInputs[s.id]" (ngModelChange)="sampleInputs[s.id] = $event"
+                  placeholder="Paste a sample instance for this source"></textarea>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px;">
+          <span style="color: var(--ink-soft);">Test against</span>
+          <select [(ngModel)]="engine" style="width: auto;">
+            <option value="xslt">Generated XSLT {{ workspace.xsltVersion() }} (executed)</option>
+            <option value="processor">Generated processor rules (evaluated)</option>
+          </select>
+        </label>
+        <div class="tabbtns" *ngIf="engine === 'xslt'" title="XSLT version to generate and run">
+          <button [class.active]="!workspace.isXslt2()" (click)="workspace.setXsltVersion('1.0')">1.0</button>
+          <button [class.active]="workspace.isXslt2()" (click)="workspace.setXsltVersion('2.0')">2.0</button>
+        </div>
+        <div *ngIf="engine === 'processor'" style="display: flex; align-items: center; gap: 10px; font-size: 11.5px;">
+          <span style="color: var(--ink-soft);">Output:</span>
+          <label style="display: flex; align-items: center; gap: 4px;">
+            <input type="radio" name="testFmt" value="xml" [(ngModel)]="testFormat" style="width: auto;"> XML
+          </label>
+          <label style="display: flex; align-items: center; gap: 4px;">
+            <input type="radio" name="testFmt" value="json" [(ngModel)]="testFormat" style="width: auto;"> JSON
+          </label>
+        </div>
+        <button class="primary small" [disabled]="running()" (click)="runTest()">{{ running() ? 'Running…' : '▶ Run' }}</button>
+      </div>
+      <div class="hint" style="margin-top: 0;">
+        <ng-container *ngIf="engine === 'xslt'">Runs the exact stylesheet from the XSLT tab against Source 1's sample XML,
+          with an XSLT {{ workspace.xsltVersion() }} processor ({{ workspace.isXslt2() ? 'Saxon-HE' : 'libxslt / lxml' }}).</ng-container>
+        <ng-container *ngIf="engine === 'processor'">Evaluates the same mapping rules the Processor class encodes, incl. for-each / if / choose / copy-of — no Java build needed. Works for JSON / CSV / SWIFT sources too.</ng-container>
+      </div>
+
+      <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; background: var(--panel-soft);"
+           [style.borderColor]="testError() ? 'var(--danger)' : 'var(--border)'">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <label style="font-size: 11px; color: var(--ink-soft); font-weight: 600;">
+            Output {{ lastEngine() ? '— ' + (lastEngine() === 'xslt' ? 'XSLT' : 'processor') : '' }}
+          </label>
+          <button class="ghost tiny" *ngIf="testOutput()" (click)="copy(testOutput())">Copy</button>
+        </div>
+        <div *ngFor="let w of testWarnings()" class="hint" style="color: var(--wire-ai); margin: 2px 0;">⚠ {{ w }}</div>
+        <pre style="margin: 0; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word;"
+             [style.color]="testError() ? 'var(--danger)' : 'var(--ink)'">{{ testOutput() }}</pre>
+      </div>
+    </div>
+
+  </ng-container>
+</div>

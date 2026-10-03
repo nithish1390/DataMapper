@@ -1,0 +1,73 @@
+<div class="fieldtree">
+  <div class="tnode-wrap" *ngFor="let node of nodes">
+    <div
+      class="tnode"
+      [style.paddingLeft.px]="depth * 12"
+      [class.used]="isUsed(node)"
+      [class.selected]="isSelected(node)"
+      [class.problem]="isProblem(node)"
+      [class.problem-ancestor]="isProblemAncestor(node)"
+      [class.detail-open]="isDetailOpen(node)"
+      [attr.data-side]="side"
+      [attr.data-path]="node.path"
+      draggable="true"
+      (dragstart)="onDragStart($event, node)"
+      (dragover)="onDragOver($event)"
+      (drop)="onDrop($event, node)"
+      (click)="nodeClick.emit(node)"
+      (contextmenu)="onMenu($event, node)"
+    >
+      <span class="caret" *ngIf="hasChildren(node); else noCaret" (click)="$event.stopPropagation(); toggleCollapse.emit(node.path)">
+        {{ isCollapsed(node) ? '▸' : '▾' }}
+      </span>
+      <ng-template #noCaret><span class="caret"></span></ng-template>
+
+      <span class="tm-icon" [class.leaf]="node.type !== 'object' && node.type !== 'array'">{{ icon(node) }}</span>
+      <span class="fpath">{{ (node.name || node.path).replace('[]', '') }}</span>
+      <span class="fmark" *ngIf="node.type === 'array'" title="Repeating">[*]</span>
+      <span class="fmark m" *ngIf="!isTarget() && node.mandatory" title="Mandatory">(M)</span>
+
+      <span class="stmt-badge" *ngFor="let b of stmtBadges[node.path] || []" [class]="'stmt-badge ' + b" [title]="b">{{ badgeLabel(b) }}</span>
+      <span class="mtag" *ngIf="isTarget() && isUsed(node)">⟵</span>
+
+
+
+      <span
+        *ngIf="isTarget() && !hasChildren(node)"
+        class="star"
+        [style.color]="isMandatory(node) ? 'var(--danger)' : 'var(--ink-soft)'"
+        [title]="isMandatory(node) ? 'Mandatory (click to mark optional)' : 'Optional (click to mark mandatory)'"
+        (click)="$event.stopPropagation(); toggleMandatory.emit(node)"
+      >{{ isMandatory(node) ? '★' : '☆' }}</span>
+
+      <ng-container *ngIf="isTarget()">
+        <span *ngIf="hasChildren(node)" class="icon-btn" title="Add child field"
+              (click)="$event.stopPropagation(); addChildField.emit(node)">+</span>
+        <span class="icon-btn" title="Rename field" (click)="$event.stopPropagation(); renameField.emit(node)">✏</span>
+      </ng-container>
+    </div>
+
+    <div class="tchildren" *ngIf="hasChildren(node) && !isCollapsed(node)">
+      <app-field-tree
+        [side]="side"
+        [nodes]="node.children"
+        [depth]="depth + 1"
+        [collapsed]="collapsed"
+        [mappedTargetPaths]="mappedTargetPaths"
+        [mappedSourceInputs]="mappedSourceInputs"
+        [problemPaths]="problemPaths"
+        [ancestorProblemPaths]="ancestorProblemPaths"
+        [selectedSource]="selectedSource"
+        [detailTarget]="detailTarget"
+        [stmtBadges]="stmtBadges"
+        (nodeClick)="nodeClick.emit($event)"
+        (nodeMenu)="nodeMenu.emit($event)"
+        (dropped)="dropped.emit($event)"
+        (toggleCollapse)="toggleCollapse.emit($event)"
+        (toggleMandatory)="toggleMandatory.emit($event)"
+        (renameField)="renameField.emit($event)"
+        (addChildField)="addChildField.emit($event)"
+      ></app-field-tree>
+    </div>
+  </div>
+</div>

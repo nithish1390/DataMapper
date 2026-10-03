@@ -1,0 +1,52 @@
+<div class="rail-top">
+  <h2>Sources</h2>
+  <button class="ghost tiny" (click)="addSource()">+ Add source</button>
+</div>
+
+<div class="src-stack">
+  <div class="src-card" *ngFor="let s of workspace.sources()" [class.open]="!s.panelCollapsed">
+    <div class="src-head" (click)="togglePanel(s.id)">
+      <span class="caret">{{ s.panelCollapsed ? '▸' : '▾' }}</span>
+      <input type="text" class="src-label" [value]="s.label" (click)="$event.stopPropagation()"
+             (change)="workspace.patchSource(s.id, { label: $any($event.target).value })">
+      <code class="src-id" title="Use in formulas as ${{ s.id }}/…">${{ s.id }}</code>
+      <button class="ghost tiny" *ngIf="s.ready" [class.on]="showLoader[s.id]" title="Change schema"
+              (click)="$event.stopPropagation(); showLoader[s.id] = !showLoader[s.id]">⚙</button>
+      <button class="ghost tiny" title="Remove source" (click)="removeSource(s.id, $event)">✕</button>
+    </div>
+
+    <div *ngIf="!s.panelCollapsed && (!s.ready || showLoader[s.id])" class="src-loader">
+      <select [ngModel]="s.type" (ngModelChange)="workspace.patchSource(s.id, { type: $event })">
+        <option *ngFor="let f of formats" [value]="f.value">{{ f.label }}</option>
+      </select>
+      <div class="tabbtns">
+        <button [class.active]="!pasteMode[s.id]" (click)="pasteMode[s.id] = false">Upload</button>
+        <button [class.active]="pasteMode[s.id]" (click)="pasteMode[s.id] = true">Paste</button>
+      </div>
+      <div *ngIf="!pasteMode[s.id]">
+        <div class="dropzone" (click)="fileInput.click()">
+          Drop file or click to browse
+          <span *ngIf="s.raw"> · {{ s.raw.length }} chars loaded</span>
+        </div>
+        <input #fileInput type="file" style="display:none" (change)="onFile(s.id, $event)">
+      </div>
+      <textarea *ngIf="pasteMode[s.id]" rows="5" [ngModel]="pasteText[s.id]" (ngModelChange)="pasteText[s.id] = $event"
+                placeholder="Paste schema or sample here"></textarea>
+      <button class="primary small" style="width: 100%;" (click)="parse(s.id)">Parse fields</button>
+    </div>
+
+    <!-- the field tree scrolls on its own, filling the column -->
+    <div *ngIf="!s.panelCollapsed && s.ready" class="src-tree rail-scroll">
+      <app-field-tree
+        [side]="s.id"
+        [nodes]="s.fields"
+        [collapsed]="s.collapsed"
+        [mappedSourceInputs]="mappedInputsFor(s.id)"
+        [selectedSource]="workspace.selectedSource()"
+        (nodeClick)="onNodeClick(s.id, $event)"
+        (nodeMenu)="openMenu(s.id, $event)"
+        (toggleCollapse)="workspace.toggleCollapse(s.id, $event)"
+      ></app-field-tree>
+    </div>
+  </div>
+</div>

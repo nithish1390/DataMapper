@@ -1,0 +1,99 @@
+<div class="modal-backdrop" *ngIf="open()">
+  <div class="modal">
+    <h2>Settings</h2>
+    <div class="sub">Project generation + AI assistant configuration.</div>
+
+    <label class="field-label" style="margin-top: 0;">Group</label>
+    <input type="text" [ngModel]="workspace.project().group" (ngModelChange)="onGroupChange($event)">
+
+    <div class="grid2">
+      <div>
+        <label class="field-label">Artifact</label>
+        <input type="text" [ngModel]="workspace.project().artifact" (ngModelChange)="onArtifactChange($event)">
+      </div>
+      <div>
+        <label class="field-label">Package</label>
+        <input type="text" [ngModel]="workspace.project().package" (ngModelChange)="patchProject({ package: $event })">
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <label class="field-label">Java version</label>
+        <select [ngModel]="workspace.project().java_version" (ngModelChange)="patchProject({ java_version: $event })">
+          <option>21</option><option>17</option><option>11</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Spring Boot version</label>
+        <select [ngModel]="workspace.project().boot_version" (ngModelChange)="patchProject({ boot_version: $event })">
+          <option>3.3.4</option><option>3.2.5</option><option>2.7.18</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="field-label">Dependencies</label>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px 8px; margin-top: 6px;">
+      <label style="display: flex; align-items: center; gap: 5px; font-size: 11.5px;">
+        <input type="checkbox" [ngModel]="workspace.project().dep_web" (ngModelChange)="patchProject({ dep_web: $event })"> Spring Web
+      </label>
+      <label style="display: flex; align-items: center; gap: 5px; font-size: 11.5px;">
+        <input type="checkbox" [ngModel]="workspace.project().dep_lombok" (ngModelChange)="patchProject({ dep_lombok: $event })"> Lombok
+      </label>
+      <label style="display: flex; align-items: center; gap: 5px; font-size: 11.5px;">
+        <input type="checkbox" [ngModel]="workspace.project().dep_camel" (ngModelChange)="patchProject({ dep_camel: $event })"> Apache Camel
+      </label>
+      <label style="display: flex; align-items: center; gap: 5px; font-size: 11.5px;">
+        <input type="checkbox" [ngModel]="workspace.project().dep_jackson" (ngModelChange)="patchProject({ dep_jackson: $event })"> Jackson
+      </label>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid var(--border); margin: 14px 0;">
+    <label class="field-label" style="margin-top: 0;">LLM API (OpenAI-compatible)</label>
+    <div>
+      <label class="field-label">Base URL</label>
+      <input type="text" [ngModel]="workspace.llm().custom_url" placeholder="http://localhost:11434/v1"
+             (ngModelChange)="patchLlm({ custom_url: $event })">
+      <label class="field-label">API key</label>
+      <input type="password" [ngModel]="workspace.llm().custom_key" placeholder="dummy (if the server needs none)"
+             (ngModelChange)="patchLlm({ custom_key: $event })">
+      <label class="field-label">Model name</label>
+      <input type="text" [ngModel]="workspace.llm().custom_model" placeholder="e.g. llama3.1, gpt-4o"
+             (ngModelChange)="patchLlm({ custom_model: $event })">
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px;">
+        <label class="field-label" style="margin: 0;">Headers</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink-soft);">
+            <input type="checkbox" style="width: auto;" [(ngModel)]="showHeaderValues"> show values
+          </label>
+          <button class="ghost tiny" (click)="addHeader()">+ Add header</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-top: 2px;">
+        Passed as <code>default_headers</code> and sent with every request, e.g. <code>api-key</code>, <code>X-Tenant-Id</code>,
+        <code>Ocp-Apim-Subscription-Key</code>. A custom <code>Authorization</code> replaces the Bearer key above.
+      </div>
+      <div *ngFor="let h of headers(); let i = index; trackBy: trackIndex" class="hdr-row">
+        <input type="text" placeholder="Header name" [ngModel]="h.name" (ngModelChange)="patchHeader(i, { name: $event })"
+               [class.bad]="h.name && !validName(h.name)" spellcheck="false">
+        <input [type]="showHeaderValues ? 'text' : 'password'" placeholder="Value" [ngModel]="h.value"
+               (ngModelChange)="patchHeader(i, { value: $event })" spellcheck="false" autocomplete="off">
+        <button class="ghost tiny danger-text" title="Remove header" (click)="removeHeader(i)">✕</button>
+      </div>
+      <div class="hint" style="color: var(--danger);" *ngIf="hasInvalidHeader()">Header names may only contain letters, digits and - .</div>
+    </div>
+
+    <button class="ghost small" style="margin-top: 8px;" [disabled]="testing()" (click)="testConnection()">
+      {{ testing() ? 'Testing…' : 'Test connection' }}
+    </button>
+    <span class="hint" *ngIf="testResult()" [style.color]="testResult()!.ok ? 'var(--success)' : 'var(--danger)'">
+      {{ testResult()!.message }}
+    </span>
+
+    <div class="modal-actions">
+      <button class="ghost" (click)="close()">Cancel</button>
+      <button class="primary" (click)="save()">Save</button>
+    </div>
+  </div>
+</div>

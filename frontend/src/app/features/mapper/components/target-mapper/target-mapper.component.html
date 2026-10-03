@@ -1,0 +1,62 @@
+<div class="tm-toolbar">
+  <button class="tm-tool" title="Move statement up (outward)" (click)="move(workspace.selectedRow(), -1)">⬆</button>
+  <button class="tm-tool" title="Move statement down (inward)" (click)="move(workspace.selectedRow(), 1)">⬇</button>
+  <button class="tm-tool" title="Delete statement / clear mapping" (click)="clear(workspace.selectedRow())">✕</button>
+  <span class="tm-sep"></span>
+  <button class="tm-tool wide" title="Surround with For-Each" (click)="surround(workspace.selectedRow(), 'for-each')">⟳ For-Each</button>
+  <button class="tm-tool wide" *ngIf="workspace.isXslt2()" title="Surround with For-Each-Group (XSLT 2.0: group items by a key)"
+          (click)="surround(workspace.selectedRow(), 'for-each-group')">⧉ Group</button>
+  <button class="tm-tool wide" title="Surround with Choice (When / Otherwise)" (click)="surround(workspace.selectedRow(), 'choose')">⋯ Choice</button>
+  <button class="tm-tool wide" title="Add a [When] to the selected Choice" (click)="addWhen(workspace.selectedRow())">+ When</button>
+  <button class="tm-tool wide" title="Surround with If" (click)="surround(workspace.selectedRow(), 'if')">? If</button>
+  <button class="tm-tool wide" title="Copy-Of: copy a whole source element" (click)="surround(workspace.selectedRow(), 'copy-of')">⧉ Copy-Of</button>
+  <span class="tm-sep"></span>
+  <button class="tm-tool" title="Expand all" (click)="workspace.setAllCollapsed(false)">⊞</button>
+  <button class="tm-tool" title="Collapse all" (click)="workspace.setAllCollapsed(true)">⊟</button>
+</div>
+
+<div class="tm-head">
+  <span>Target</span>
+  <span>Formula (XPath)</span>
+</div>
+
+<div class="tm-rows">
+  <div *ngFor="let r of workspace.visibleRows(); trackBy: trackRow"
+       class="tm-row"
+       [class.selected]="workspace.selectedRowKey() === r.key"
+       [class.is-stmt]="r.kind !== 'element'"
+       [class.unmapped]="r.kind === 'element' && !r.hasContent"
+       [class.problem]="issues().msgs.has(r.key)"
+       [class.problem-ancestor]="!issues().msgs.has(r.key) && issues().ancestors.has(r.key)"
+       [class.excluded]="r.excluded"
+       [attr.data-side]="'target'"
+       [attr.data-row-key]="r.key"
+       [attr.data-path]="r.node.path"
+       [attr.data-scope]="r.scope"
+       [attr.data-kind]="r.kind"
+       (click)="select(r)"
+       (contextmenu)="openMenu(r, $event)"
+       (dragover)="allowDrop($event)"
+       (drop)="drop(r, $event)">
+    <div class="tm-name" [style.paddingLeft.px]="r.depth * 14 + 4" [title]="issueText(r)">
+      <span class="tm-caret" (click)="toggle(r, $event)">{{ r.expandable ? (r.collapsed ? '⊞' : '⊟') : '' }}</span>
+      <span class="tm-choice" *ngIf="r.choiceGroup && r.kind === 'element'" [class.on]="choiceSelected(r)"
+            [title]="choiceTitle(r)" (click)="pickChoice(r, $event)">{{ choiceSelected(r) ? '◉' : '○' }}</span>
+      <span class="tm-icon" [attr.data-kind]="r.kind" [class.leaf]="r.kind === 'element' && r.node.type !== 'object' && r.node.type !== 'array'">{{ icon(r) }}</span>
+      <span class="tm-label" [class.inherited]="r.inherited">{{ label(r) }}</span>
+      <span class="fmark" *ngIf="r.kind === 'element' && r.node.type === 'array'" title="Repeating">[*]</span>
+      <span class="fmark m" *ngIf="r.kind === 'element' && isMandatory(r)" title="Mandatory">(M)</span>
+    </div>
+    <input class="tm-formula" type="text" spellcheck="false"
+           [value]="r.formula"
+           [readOnly]="!editable(r)"
+           [class.implied]="r.implied"
+           [class.inherited]="r.inherited"
+           [placeholder]="placeholder(r)"
+           [title]="r.implied ? 'Copied by the parent Copy-Of' + (r.fuzzy ? ' (name differs in the source)' : '') + ' — type or drop to override' : r.inherited ? 'Inherited from outside this branch — type to override here' : r.formula"
+           (click)="$event.stopPropagation(); select(r)"
+           (change)="commit(r, $event)"
+           (keydown.enter)="$any($event.target).blur()">
+  </div>
+  <div *ngIf="!workspace.visibleRows().length" class="hint" style="padding: 10px;">Parse a target schema to start mapping.</div>
+</div>

@@ -1,0 +1,89 @@
+<div class="modal-backdrop" *ngIf="open()">
+  <div class="modal" style="width: 640px;">
+    <h2>Import mapping sheet</h2>
+    <div class="sub">CSV or Excel (.xlsx). For Excel, pick the sheet and the row your headers start on.</div>
+    <button class="ghost small" (click)="downloadTemplate()">⬇ Download CSV template</button>
+
+    <label class="field-label">Upload file</label>
+    <input type="file" accept=".csv,.txt,.xlsx,.xls" (change)="onFile($event)">
+
+    <ng-container *ngIf="rows().length">
+      <div class="grid3">
+        <div *ngIf="sheetNames().length">
+          <label class="field-label">Sheet</label>
+          <select [ngModel]="selectedSheet" (ngModelChange)="onSheetChange($event)">
+            <option *ngFor="let n of sheetNames()" [value]="n">{{ n }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Header row #</label>
+          <input type="number" min="1" [(ngModel)]="headerRow" (ngModelChange)="autoDetectColumns()">
+        </div>
+        <div>
+          <label class="field-label">Data rows found</label>
+          <div class="hint" style="margin-top: 8px;">{{ dataRows.length }}</div>
+        </div>
+      </div>
+
+      <label class="field-label">Preview</label>
+      <div style="max-height: 140px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius);">
+        <table style="width: 100%; border-collapse: collapse; font-size: 10.5px; font-family: var(--mono);">
+          <tr>
+            <th *ngFor="let h of headers; let i = index" style="border: 1px solid var(--border); padding: 3px 5px;">
+              {{ h || ('(col ' + (i + 1) + ')') }}
+            </th>
+          </tr>
+          <tr *ngFor="let r of dataRows.slice(0, 5)">
+            <td *ngFor="let h of headers; let i = index" style="border: 1px solid var(--border); padding: 3px 5px; white-space: nowrap;">
+              {{ r[i] }}
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <label class="field-label">Which column is which?</label>
+      <div class="grid2">
+        <div>
+          <label class="field-label" style="margin-top: 0;">Source (id or label, optional)</label>
+          <select [(ngModel)]="colSource">
+            <option [ngValue]="-1">(none)</option>
+            <option *ngFor="let i of columnIndexes" [ngValue]="i">{{ headers[i] || ('col ' + (i + 1)) }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" style="margin-top: 0;">Source path column (optional)</label>
+          <select [(ngModel)]="colSourcePath">
+            <option [ngValue]="-1">(none)</option>
+            <option *ngFor="let i of columnIndexes" [ngValue]="i">{{ headers[i] || ('col ' + (i + 1)) }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div>
+          <label class="field-label">Target path column *</label>
+          <select [(ngModel)]="colTargetPath">
+            <option [ngValue]="-1">(none)</option>
+            <option *ngFor="let i of columnIndexes" [ngValue]="i">{{ headers[i] || ('col ' + (i + 1)) }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Transform / instruction column (optional)</label>
+          <select [(ngModel)]="colTransform">
+            <option [ngValue]="-1">(none)</option>
+            <option *ngFor="let i of columnIndexes" [ngValue]="i">{{ headers[i] || ('col ' + (i + 1)) }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">
+        Source path is optional: leave it blank and put an XPath-style reference or a plain instruction
+        (e.g. "Map from GrpHdr/MsgId", "UPPERCASE(GrpHdr/Nm)") in the Transform column instead — it gets
+        parsed and resolved against your source tree, falling back to the AI for anything it can't resolve.
+      </div>
+    </ng-container>
+
+    <div class="modal-actions">
+      <button class="ghost" (click)="reset()">Cancel</button>
+      <button class="primary" [disabled]="!rows().length" (click)="apply()">Apply mapping sheet</button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,34 @@
+<div style="border-bottom: 1px solid var(--border); padding: 8px 10px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+    <strong style="font-size: 11.5px;">Variables (temp placeholders)</strong>
+    <button class="ghost tiny" (click)="add()">+ Add</button>
+  </div>
+
+  <div class="hint" *ngIf="!workspace.variables().length">
+    None yet — add one, drag a source field onto it, then reference it elsewhere as $name.
+  </div>
+
+  <div *ngFor="let v of workspace.variables()"
+       style="border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; background: var(--panel-soft); margin-bottom: 6px;">
+    <div style="display: flex; gap: 4px; align-items: center;">
+      <span style="font-family: var(--mono); font-size: 11px; color: var(--wire);">$</span>
+      <input type="text" [value]="v.name" style="width: 80px; font-size: 11px;"
+             (change)="workspace.updateVariable(v.id, { name: ($any($event.target).value || v.name).replace('[^A-Za-z0-9_]', '_') })">
+      <span class="var-drop" style="flex: 1;" (dragover)="$event.preventDefault()" (drop)="onDrop($event, v.id)">
+        <span class="chip" *ngFor="let inp of v.inputs; let i = index">
+          {{ workspace.sourceLabel(inp.source_id) }}.{{ inp.path }}
+          <button (click)="removeInput(v.id, i)">✕</button>
+        </span>
+        <span class="hint" style="margin: 0;" *ngIf="!v.inputs.length">drop source field</span>
+      </span>
+      <button class="ghost tiny" (click)="remove(v.id, v.name)">✕</button>
+    </div>
+    <div style="display: flex; gap: 4px; margin-top: 4px;">
+      <input type="text" [ngModel]="v.transform" (ngModelChange)="workspace.updateVariable(v.id, { transform: $event })"
+             placeholder="(direct)" style="font-size: 11px;">
+      <app-function-menu [open]="openMenuFor === v.id"
+                          (openChange)="openMenuFor = $event ? v.id : null"
+                          (pick)="insertFn(v.id, $event)"></app-function-menu>
+    </div>
+  </div>
+</div>

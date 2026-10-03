@@ -1,0 +1,223 @@
+<div class="fb">
+  <!-- ================= bar ================= -->
+  <div class="canvas-bar">
+    <strong class="fb-title">Mapping Builder</strong>
+    <div class="tabbtns" title="XSLT version: decides the generated stylesheet, the available functions and the Test / Run processor">
+      <span class="muted" style="align-self: center; margin-right: 2px;">XSLT</span>
+      <button [class.active]="!workspace.isXslt2()" (click)="workspace.setXsltVersion('1.0')">1.0</button>
+      <button [class.active]="workspace.isXslt2()" (click)="workspace.setXsltVersion('2.0')">2.0</button>
+    </div>
+    <div class="tabbtns" title="Mapping lines between source and target">
+      <span class="muted" style="align-self: center; margin-right: 2px;">Lines</span>
+      <button [class.active]="workspace.lineMode() === 'all'" (click)="setLineMode('all')">All</button>
+      <button [class.active]="workspace.lineMode() === 'selected'" (click)="setLineMode('selected')">Selected</button>
+      <button [class.active]="workspace.lineMode() === 'none'" (click)="setLineMode('none')">Off</button>
+    </div>
+  </div>
+
+  <!-- ================= nothing selected ================= -->
+  <div *ngIf="!row()" class="fb-empty">
+    <ng-container *ngIf="workspace.selectedSource() as sel; else tips">
+      <div class="card" style="width: 100%;">
+        <div class="card-title">
+          <span><span class="muted">Source ·</span> <code>{{ workspace.refFor(null, sel.source_id, sel.path) }}</code></span>
+          <button class="ghost tiny" (click)="workspace.selectedSource.set(null)">✕</button>
+        </div>
+        <div *ngIf="sourceUsages().length; else unused" style="display: flex; flex-direction: column; gap: 3px;">
+          <div *ngFor="let u of sourceUsages()" class="maprow" (click)="openRowKey(u.rowKey)">
+            <span class="kind-chip" [attr.data-kind]="u.kind">{{ u.kind }}</span>
+            <span class="maprow-path">{{ u.target }}</span>
+          </div>
+        </div>
+        <ng-template #unused><div class="hint" style="margin: 0;">Not used by any mapping yet. Drag it onto a target row.</div></ng-template>
+      </div>
+    </ng-container>
+    <ng-template #tips>
+      <div style="font-size: 22px; opacity: .5;">ƒx</div>
+      <div>Click a row in the <b>Target</b> tree — a field, an element, or a [For-Each] / [When] / [If] — to edit its formula here.</div>
+      <div class="muted">Drag source fields onto target rows to map them. Right-click a target row for
+        <b>Statement › Surround with Choice / If / For-Each</b>, Copy-Of, Copy / Paste formula…</div>
+      <div *ngIf="allMappings().length" class="card" style="width: 100%; margin-top: 8px; text-align: left;">
+        <div class="card-title">{{ allMappings().length }} mapping(s)</div>
+        <div style="display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow: auto;">
+          <div *ngFor="let m of allMappings()" class="maprow" (click)="openRowKey(m.key)">
+            <span class="maprow-path">{{ m.target }}</span>
+            <span class="kind-chip" *ngIf="m.scope">branch</span>
+            <span class="muted ellipsis" style="max-width: 45%;">{{ m.formula }}</span>
+          </div>
+        </div>
+      </div>
+    </ng-template>
+  </div>
+
+  <!-- ================= builder ================= -->
+  <div *ngIf="row() as r" class="fb-body">
+    <div class="fb-left">
+      <div class="fb-tabs">
+        <button [class.active]="tab() === 'functions'" (click)="tab.set('functions')">Functions</button>
+        <button [class.active]="tab() === 'variables'" (click)="tab.set('variables')">Variables</button>
+        <button [class.active]="tab() === 'constants'" (click)="tab.set('constants')">Constants</button>
+      </div>
+
+      <div class="fb-pane" *ngIf="tab() === 'functions'">
+        <div class="fb-group">Statements</div>
+        <div class="fb-stmts">
+          <button class="small" (click)="surround('for-each')" title="Repeat the selected element per source item">⟳ For-Each</button>
+          <button class="small" *ngIf="workspace.isXslt2()" (click)="surround('for-each-group')"
+                  title="One element per group of source items (group-by key)">⧉ For-Each-Group</button>
+          <button class="small" (click)="surround('if')">? If</button>
+          <button class="small" (click)="surround('choose')">⋯ Choice</button>
+          <button class="small" (click)="surround('copy-of')" [disabled]="r.kind !== 'element'">⧉ Copy-Of</button>
+        </div>
+        <div class="hint" style="margin: 2px 0 6px;" *ngIf="!workspace.isXslt2()">
+          XSLT 1.0: {{ hiddenFor1 }} more functions and For-Each-Group are available with XSLT 2.0.
+        </div>
+        <ng-container *ngFor="let g of groups()">
+          <div class="fb-group">{{ g.group }}</div>
+          <div *ngFor="let f of g.fns" class="fb-item" draggable="true" (dragstart)="dragText($event, f.template)"
+               (click)="insert(f.template)" (mouseenter)="hoverFn.set(f)" [title]="f.desc">
+            <code>{{ f.name }}</code> <span class="v2-tag" *ngIf="f.v2">2.0</span>
+          </div>
+        </ng-container>
+        <div class="fb-group" style="display: flex; justify-content: space-between; align-items: center;">
+          Custom functions
+          <button class="ghost tiny" (click)="customFns.open()">Manage…</button>
+        </div>
+        <div *ngIf="!libraryGroups().length" class="hint" style="margin: 0 0 6px;">
+          None yet — <a href="" (click)="$event.preventDefault(); customFns.open()">upload a .jar or .java</a>.
+        </div>
+        <ng-container *ngFor="let g of libraryGroups()">
+          <div class="fb-subgroup">{{ g.name }} <span class="muted">· {{ g.file }}</span></div>
+          <div *ngFor="let f of g.fns" class="fb-item" draggable="true" (dragstart)="dragText($event, f.template)"
+               (click)="insert(f.template)" (mouseenter)="hoverFn.set({ name: f.name, template: f.template, desc: f.desc })" [title]="f.desc">
+            <code>{{ f.name }}</code> <span class="muted">{{ f.cls }}</span>
+          </div>
+        </ng-container>
+        <div class="fb-desc" *ngIf="hoverFn() as f"><code>{{ f.template }}</code><br>{{ f.desc }}</div>
+      </div>
+
+      <div class="fb-pane" *ngIf="tab() === 'variables'">
+        <div class="fb-group">Use in the formula</div>
+        <div *ngFor="let v of workspace.variables()" class="fb-item" draggable="true"
+             (dragstart)="dragText($event, '$' + v.name)" (click)="insert('$' + v.name)">
+          <code>${{ v.name }}</code> <span class="muted ellipsis">{{ v.transform || '(direct)' }}</span>
+        </div>
+        <div *ngIf="!workspace.variables().length" class="hint" style="margin: 0 0 6px;">No variables yet.</div>
+        <app-variables-panel></app-variables-panel>
+      </div>
+
+      <div class="fb-pane" *ngIf="tab() === 'constants'">
+        <div *ngFor="let c of constants" class="fb-item" draggable="true" (dragstart)="dragText($event, c.text)"
+             (click)="insert(c.text)"><code>{{ c.label }}</code></div>
+      </div>
+    </div>
+
+    <div class="fb-right">
+      <div class="fb-row-title">
+        <span class="kind-chip" [attr.data-kind]="r.kind">{{ kindLabel(r) }}</span>
+        <strong class="mono ellipsis" [title]="r.node.path">{{ r.label }}</strong>
+        <span class="muted ellipsis" style="flex: 1;" [title]="r.node.path">{{ r.node.path }}</span>
+        <span class="kind-chip" *ngIf="r.scope" title="This element belongs to a Choice branch">branch</span>
+        <button class="ghost tiny" (click)="workspace.selectRow(null)">✕</button>
+      </div>
+
+      <label class="field-label">Evaluation context</label>
+      <div class="fb-context mono">{{ check()?.context || (r.ctx.length ? '$' + r.ctx[r.ctx.length - 1].sid + '/' + r.ctx[r.ctx.length - 1].segs.join('/') : '/ (document root)') }}</div>
+
+      <ng-container *ngIf="editable(r); else noFormula">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 9px;">
+          <label class="field-label" style="margin: 0;">
+            {{ r.kind === 'for-each' || r.kind === 'for-each-group' ? 'Select (repeating source)' : r.kind === 'element' ? 'Formula' : 'Test' }}
+            <span class="pending-tag" *ngIf="pending()">● not applied</span>
+          </label>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <div class="tabbtns" *ngIf="r.kind === 'element'">
+              <button [class.active]="!r.isCopy" (click)="setMode('value')" title="xsl:value-of"
+                      [disabled]="!!r.node.children.length && r.isCopy">value-of</button>
+              <button [class.active]="r.isCopy" (click)="setMode('copy-of')" title="xsl:copy-of">copy-of</button>
+            </div>
+            <button class="ghost tiny" (click)="clear()" title="Empty the draft (Apply to remove the mapping)">Clear</button>
+          </div>
+        </div>
+        <div class="hint" *ngIf="r.implied" style="color: var(--wire);">
+          Filled by the parent's <b>Copy-Of</b> from <code>{{ r.formula }}</code>{{ r.fuzzy ? ' (name differs in the source)' : '' }}.
+          Type a formula (or drop a source field) and Apply to override it for this field.
+        </div>
+        <textarea #formulaBox class="fb-formula" rows="4" spellcheck="false" [class.invalid]="invalid()"
+                  [ngModel]="text()" (ngModelChange)="onInput($event)" (keydown)="onKey($event)"
+                  (dragover)="$event.preventDefault()" (drop)="onDrop($event)"
+                  [placeholder]="r.kind === 'for-each' || r.kind === 'for-each-group' ? 'e.g. $s1/Document/CstmrCdtTrfInitn/PmtInf' : r.kind === 'element' ? 'e.g. Name/FullName   concat(FName, \' \', LName)   \'Home\'' : 'e.g. count(HomePhone) > 0'"></textarea>
+        <div class="fb-apply">
+          <button class="primary small" [disabled]="!pending()" (click)="apply()" title="Ctrl/⌘ + Enter">✓ Apply</button>
+          <button class="small" (click)="save()" title="Apply and save the session (Ctrl/⌘ + S)">💾 Save</button>
+          <button class="ghost small" [disabled]="!pending()" (click)="revert()">↺ Revert</button>
+          <span class="muted" style="margin-left: auto;">Ctrl/⌘+Enter apply · Ctrl/⌘+S save</span>
+        </div>
+        <ng-container *ngIf="r.kind === 'for-each-group' && r.stmt as st">
+          <label class="field-label">Group by (key per item)</label>
+          <input type="text" class="branch-test" spellcheck="false" [value]="st.group_by || ''"
+                 placeholder="e.g. Amt/InstdAmt/@Ccy" (change)="setGroupBy(r, $any($event.target).value)"
+                 (keydown.enter)="$any($event.target).blur()">
+          <div class="hint">Inside: <code>current-grouping-key()</code>, <code>count(current-group())</code>,
+            <code>sum(current-group()/Amt)</code>; a For-Each over <code>current-group()</code> lists the members.</div>
+        </ng-container>
+        <div class="hint" *ngIf="r.inherited" style="color: var(--wire-ai);">
+          Inherited from outside this branch. Applying an edit creates a value just for this branch.
+        </div>
+        <div class="fb-status bad" *ngFor="let p of rowProblems()">✕ {{ p }}</div>
+        <div class="fb-status" *ngIf="check() as c" [class.bad]="!c.ok">
+          <ng-container *ngIf="c.ok">✓ Valid · XSLT: <code>{{ c.xpath }}</code></ng-container>
+          <ng-container *ngIf="!c.ok">✕ {{ c.error }}</ng-container>
+        </div>
+      </ng-container>
+
+      <ng-template #noFormula>
+        <div class="hint" *ngIf="r.kind === 'choose'">
+          The first <b>[When]</b> whose test is true is written; otherwise the <b>[Otherwise]</b> branch.
+          Each branch has its own copy of <code>{{ r.node.name.replace('[]', '') }}</code> with its own mappings.
+        </div>
+        <div class="hint" *ngIf="r.kind === 'otherwise'">Written when no [When] test is true.</div>
+      </ng-template>
+
+      <!-- Choice logic: every branch, expandable, with its mappings -->
+      <ng-container *ngIf="(r.kind === 'choose' || r.kind === 'when' || r.kind === 'otherwise') && chooseRowOf(r) as ch">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 12px;">
+          <label class="field-label" style="margin: 0;">Choice logic — {{ ch.node.name.replace('[]', '') }}</label>
+          <div style="display: flex; gap: 4px;">
+            <button class="ghost tiny" (click)="workspace.addWhen(ch.stmt!.id)">+ When</button>
+            <button class="ghost tiny" *ngIf="ch.stmt!.otherwise === null" (click)="workspace.setOtherwise(ch.stmt!.id, true)">+ Otherwise</button>
+            <button class="ghost tiny danger-text" (click)="deleteChoice(ch)" title="Delete the whole Choice">🗑 Choice</button>
+          </div>
+        </div>
+        <div *ngFor="let b of whenRows(ch)" class="branch-card" [class.current]="b.key === r.key">
+          <div class="branch-head">
+            <span class="tm-caret" (click)="toggleBranch(b)">{{ isBranchOpen(b) ? '⊟' : '⊞' }}</span>
+            <span class="kind-chip" [attr.data-kind]="b.kind" style="cursor: pointer;" (click)="workspace.selectRow(b)">{{ b.label }}</span>
+            <input *ngIf="b.kind === 'when'" type="text" class="branch-test" spellcheck="false" [value]="b.formula"
+                   placeholder="test, e.g. count(HomePhone) > 0" (change)="setBranchTest(b, $any($event.target).value)"
+                   (keydown.enter)="$any($event.target).blur()">
+            <span *ngIf="b.kind === 'otherwise'" class="muted" style="flex: 1;">no [When] matched</span>
+            <button class="ghost tiny danger-text" (click)="deleteBranch(b)" [disabled]="b.kind === 'when' && whenRows(ch).length < 2 && b.kind === 'when'"
+                    title="Delete this branch">✕</button>
+          </div>
+          <div *ngIf="isBranchOpen(b)" class="branch-body">
+            <div *ngFor="let it of branchItems(b)" class="maprow" (click)="workspace.selectRow(it.row)">
+              <span class="maprow-path">{{ it.rel }}</span>
+              <span class="muted ellipsis" style="max-width: 55%;">{{ it.row.formula }}</span>
+            </div>
+            <div *ngIf="!branchItems(b).length" class="hint" style="margin: 0;">
+              Nothing mapped in this branch yet — map the fields under it in the Target tree.
+            </div>
+          </div>
+        </div>
+      </ng-container>
+
+      <div *ngIf="r.kind === 'for-each' || r.kind === 'for-each-group' || r.kind === 'if'" style="margin-top: 10px;">
+        <button class="ghost tiny danger-text" (click)="deleteStatement(r)">🗑 Remove {{ r.kind }}</button>
+      </div>
+
+      <label class="field-label">Generated XSLT</label>
+      <pre class="codeprev snippet">{{ snippet() || '…' }}</pre>
+    </div>
+  </div>
+</div>

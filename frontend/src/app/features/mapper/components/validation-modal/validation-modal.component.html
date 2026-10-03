@@ -1,0 +1,99 @@
+<div class="modal-backdrop" *ngIf="v.isOpen()" (click)="v.close()">
+  <div class="modal val-modal" (click)="$event.stopPropagation()">
+    <div class="val-head">
+      <h2>Validate mapping</h2>
+      <div style="display: flex; gap: 6px;">
+        <button class="ghost small" (click)="v.run()" [disabled]="v.loading()">↻ Re-validate</button>
+        <button class="ghost small" (click)="v.close()">✕</button>
+      </div>
+    </div>
+
+    <div *ngIf="v.loading()" class="hint">Validating against the target XSD…</div>
+    <div *ngIf="v.error() as e" class="val-banner bad">✕ Validation failed to run: {{ e }}</div>
+
+    <ng-container *ngIf="!v.loading() && v.result() as r">
+      <div class="val-banner" [class.bad]="!r.valid" [class.good]="r.valid">
+        <span class="val-big">{{ r.valid ? '✓' : '✕' }}</span>
+        <div>
+          <div class="val-title">{{ r.valid ? 'Mapping is valid' : 'Mapping is not valid' }}</div>
+          <div class="val-sub">
+            <ng-container *ngIf="r.valid">All mandatory target fields are mapped{{ r.xsd.ran ? ' and the generated output validates against the target XSD' : '' }}.</ng-container>
+            <ng-container *ngIf="!r.valid">
+              <span *ngIf="r.unmapped_mandatory.length">{{ r.unmapped_mandatory.length }} mandatory field(s) not mapped. </span>
+              <span *ngIf="r.problems.length">{{ r.problems.length }} mapping problem(s). </span>
+              <span *ngIf="r.xsd.ran && !r.xsd.valid">Output fails the target XSD ({{ r.xsd.errors.length }} error(s)).</span>
+            </ng-container>
+          </div>
+        </div>
+      </div>
+
+      <div class="val-progress" title="{{ r.mapped_fields }} of {{ r.total_fields }} target fields mapped">
+        <div class="val-progress-bar" [style.width.%]="percent()"></div>
+      </div>
+
+      <div class="val-cards">
+        <div class="val-card"><div class="val-num">{{ r.total_fields }}</div><div class="val-lbl">Target fields</div></div>
+        <div class="val-card good"><div class="val-num">{{ r.mapped_fields }}</div><div class="val-lbl">Mapped ({{ percent() }}%)</div></div>
+        <button class="val-card click" [class.on]="list() === 'not-mapped'" (click)="show('not-mapped')">
+          <div class="val-num">{{ r.total_fields - r.mapped_fields }}</div><div class="val-lbl">Not mapped ›</div>
+        </button>
+        <button class="val-card click" [class.bad]="r.unmapped_mandatory.length" [class.on]="list() === 'mandatory'" (click)="show('mandatory')">
+          <div class="val-num">{{ r.unmapped_mandatory.length }}</div><div class="val-lbl">Mandatory missing ›</div>
+        </button>
+        <button class="val-card click" [class.on]="list() === 'optional'" (click)="show('optional')">
+          <div class="val-num">{{ r.unmapped_optional.length }}</div><div class="val-lbl">Optional not mapped ›</div>
+        </button>
+        <button class="val-card click" [class.bad]="r.problems.length" [class.on]="list() === 'problems'" (click)="show('problems')">
+          <div class="val-num">{{ r.problems.length }}</div><div class="val-lbl">Problems ›</div>
+        </button>
+      </div>
+
+      <div class="val-xsd" [class.bad]="r.xsd.ran && !r.xsd.valid" [class.good]="r.xsd.ran && r.xsd.valid">
+        <strong>Target XSD validation</strong>
+        <ng-container *ngIf="r.xsd.ran">
+          — the generated XSLT was run on the Test / Run sample and its output
+          {{ r.xsd.valid ? 'is valid against the target XSD ✓' : 'is NOT valid against the target XSD' }}.
+          <button *ngIf="r.xsd.errors.length" class="ghost tiny" (click)="show('xsd')">{{ r.xsd.errors.length }} error(s) ›</button>
+        </ng-container>
+        <span *ngIf="!r.xsd.ran" class="muted"> — not run: {{ r.xsd.reason }}</span>
+      </div>
+      <div class="val-xsd" *ngIf="r.xsd.source_checked" [class.bad]="!r.xsd.source_valid" [class.good]="r.xsd.source_valid">
+        <strong>Input sample vs source XSD</strong>
+        <ng-container *ngIf="r.xsd.source_valid"> — the Test / Run sample is valid ✓</ng-container>
+        <ng-container *ngIf="!r.xsd.source_valid">
+          — the Test / Run sample itself is <b>not valid</b> against the source schema, so some output errors come from the input:
+          <div *ngFor="let e of r.xsd.source_errors" class="mono" style="font-size: 11px; margin-top: 3px;">• {{ e }}</div>
+        </ng-container>
+      </div>
+
+      <div *ngIf="list()" class="val-list">
+        <div class="val-list-head">
+          <strong>{{ {'not-mapped': 'Target fields not mapped', mandatory: 'Mandatory fields not mapped',
+                      optional: 'Optional fields not mapped', problems: 'Mapping problems', xsd: 'XSD validation errors'}[list()!] }}
+            ({{ list() === 'xsd' ? xsdDetails().length : items().length }})</strong>
+          <input type="text" placeholder="Filter…" [ngModel]="filter()" (ngModelChange)="filter.set($event)" style="width: 200px;">
+        </div>
+        <div class="val-rows" *ngIf="list() === 'xsd'">
+          <div *ngFor="let d of xsdDetails()" class="xsd-err" [class.click]="d.target" (click)="goTo(d.target)"
+               [title]="d.target ? 'Show in the Target tree' : ''">
+            <div class="xsd-err-head">
+              <span class="maprow-path">{{ d.target ? short(d.target) : 'line ' + d.line }}</span>
+              <span class="muted" *ngIf="d.line">line {{ d.line }}</span>
+            </div>
+            <div class="xsd-err-msg">{{ d.message }}</div>
+            <div class="xsd-err-formula" *ngIf="d.formula">formula: <code>{{ d.formula }}</code></div>
+            <div class="xsd-err-hint" *ngIf="d.hint">→ {{ d.hint }}</div>
+          </div>
+        </div>
+        <div class="val-rows" *ngIf="list() !== 'xsd'">
+          <div *ngFor="let it of items()" class="maprow" [class.bad]="it.note === 'mandatory'" (click)="goTo(it.path)"
+               [title]="it.path ? 'Show in the Target tree' : ''">
+            <span class="maprow-path" *ngIf="it.path">{{ short(it.path) }}</span>
+            <span [class.muted]="it.path" [style.flex]="it.path ? '0 1 auto' : '1'" style="white-space: normal;">{{ it.note }}</span>
+          </div>
+          <div *ngIf="!items().length" class="hint">Nothing here.</div>
+        </div>
+      </div>
+    </ng-container>
+  </div>
+</div>

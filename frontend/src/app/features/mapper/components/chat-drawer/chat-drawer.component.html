@@ -1,0 +1,44 @@
+<button class="primary" style="position: fixed; bottom: 18px; right: 18px; z-index: 70;" (click)="toggle()">💬 Assistant</button>
+
+<div style="position: fixed; top: 0; height: 100vh; width: 360px; background: var(--panel); border-left: 1px solid var(--border);
+            z-index: 80; display: flex; flex-direction: column; box-shadow: -8px 0 24px rgba(0,0,0,.12);
+            transition: right .18s ease;"
+     [style.right]="open() ? '0' : '-380px'">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border);">
+    <strong style="font-family: var(--display); font-size: 14px;">Mapping assistant</strong>
+    <button class="ghost small" (click)="open.set(false)">✕</button>
+  </div>
+
+  <div style="flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+    <div *ngFor="let m of messages(); let i = index"
+         [style.align-self]="m.role === 'user' ? 'flex-end' : 'flex-start'"
+         style="max-width: 88%; padding: 8px 10px; border-radius: 10px; font-size: 12px; line-height: 1.5; white-space: pre-wrap;"
+         [style.background]="m.role === 'user' ? 'var(--accent)' : 'var(--panel-soft)'"
+         [style.color]="m.role === 'user' ? '#fff' : 'var(--ink)'"
+         [style.border]="m.role === 'assistant' ? '1px solid var(--border)' : 'none'">
+      {{ m.text }}
+
+      <div *ngIf="m.actions && m.actions.length && !m.applied" style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
+        <div *ngFor="let a of m.actions" style="font-family: var(--mono); font-size: 10.5px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px;">
+          <ng-container *ngIf="a.op === 'remove'; else addAction">remove mapping → {{ a.target }}</ng-container>
+          <ng-template #addAction>
+            {{ a.target }} ⟵ {{ formatInputs(a.inputs) }}<span *ngIf="a.transform"> [{{ a.transform }}]</span>
+          </ng-template>
+        </div>
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+          <button class="primary small" (click)="apply(i)">✅ Apply</button>
+          <button class="ghost small" (click)="discard(i)">✕ Discard</button>
+        </div>
+      </div>
+      <div class="hint" *ngIf="m.actions && m.actions.length && m.applied">✓ Applied</div>
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid var(--border); padding: 10px; display: flex; gap: 6px;">
+    <textarea style="min-height: 38px; max-height: 100px;" [(ngModel)]="input"
+              placeholder="e.g. Map orderId to orderNumber and uppercase the customer name"
+              (keydown.enter)="$event.preventDefault(); send()"></textarea>
+    <button class="primary small" (click)="send()">Send</button>
+  </div>
+</div>

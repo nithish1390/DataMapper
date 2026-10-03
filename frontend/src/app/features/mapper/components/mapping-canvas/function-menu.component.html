@@ -1,0 +1,21 @@
+<div style="position: relative;">
+  <button class="ghost tiny" (click)="toggle()">ƒx</button>
+  <div *ngIf="open"
+       style="display:block; position: absolute; right: 0; top: 100%; background: var(--panel); border: 1px solid var(--border);
+              border-radius: var(--radius); box-shadow: 0 6px 18px rgba(0,0,0,.15); z-index: 50; min-width: 230px;
+              max-height: 320px; overflow: auto;">
+    <button *ngFor="let f of builtins" style="display:block; width:100%; text-align:left; border:none; border-radius:0;
+             font-size: 11px; padding: 6px 9px; background: transparent;"
+            [title]="f.title || ''" (click)="choose(f.template)">{{ f.label }}</button>
+
+    <ng-container *ngIf="workspace.jarFunctions().length">
+      <div style="border-top: 1px solid var(--border); margin: 4px 0;"></div>
+      <button *ngFor="let jf of workspace.jarFunctions()"
+              style="display:block; width:100%; text-align:left; border:none; border-radius:0; font-size: 11px; padding: 6px 9px; background: transparent;"
+              [title]="jf.class_name + '.' + jf.method_name + '(' + jf.params.join(', ') + ') : ' + jf.ret"
+              (click)="choose(jf.method_name + '(' + jarTemplate(jf.params.length) + ')')">
+        {{ jf.method_name }}() <span style="color: var(--ink-soft);">— {{ jf.class_name.split('.').pop() }}</span>
+      </button>
+    </ng-container>
+  </div>
+</div>
