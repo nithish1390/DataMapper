@@ -10,6 +10,8 @@
   <button class="tm-tool wide" title="Add a [When] to the selected Choice" (click)="addWhen(workspace.selectedRow())">+ When</button>
   <button class="tm-tool wide" title="Surround with If" (click)="surround(workspace.selectedRow(), 'if')">? If</button>
   <button class="tm-tool wide" title="Copy-Of: copy a whole source element" (click)="surround(workspace.selectedRow(), 'copy-of')">⧉ Copy-Of</button>
+  <button class="tm-tool wide" title="Add a variable: global (top of the tree), or before the selected element (local)"
+          (click)="workspace.selectedRow()?.kind === 'element' ? addLocalVariable(workspace.selectedRow()) : addGlobalVariable()">＄ Variable</button>
   <span class="tm-sep"></span>
   <button class="tm-tool" title="Expand all" (click)="workspace.setAllCollapsed(false)">⊞</button>
   <button class="tm-tool" title="Collapse all" (click)="workspace.setAllCollapsed(true)">⊟</button>
@@ -24,7 +26,8 @@
   <div *ngFor="let r of workspace.visibleRows(); trackBy: trackRow"
        class="tm-row"
        [class.selected]="workspace.selectedRowKey() === r.key"
-       [class.is-stmt]="r.kind !== 'element'"
+       [class.is-stmt]="r.kind !== 'element' && r.kind !== 'variable' && r.kind !== 'var-header'"
+       [class.is-var]="r.kind === 'variable' || r.kind === 'local-variable' || r.kind === 'var-header'"
        [class.unmapped]="r.kind === 'element' && !r.hasContent"
        [class.problem]="issues().msgs.has(r.key)"
        [class.problem-ancestor]="!issues().msgs.has(r.key) && issues().ancestors.has(r.key)"
@@ -44,7 +47,11 @@
             [title]="choiceTitle(r)" (click)="pickChoice(r, $event)">{{ choiceSelected(r) ? '◉' : '○' }}</span>
       <span class="tm-icon" [attr.data-kind]="r.kind" [class.leaf]="r.kind === 'element' && r.node.type !== 'object' && r.node.type !== 'array'">{{ icon(r) }}</span>
       <span class="tm-label" [class.inherited]="r.inherited">{{ label(r) }}</span>
+      <span class="var-type" *ngIf="r.kind === 'variable' || r.kind === 'local-variable'">{{ varType(r) }}</span>
+      <button class="ghost tiny" *ngIf="r.kind === 'var-header'" (click)="$event.stopPropagation(); addGlobalVariable()"
+              title="Add a global variable">+ add</button>
       <span class="fmark" *ngIf="r.kind === 'element' && r.node.type === 'array'" title="Repeating">[*]</span>
+      <span class="fpos" *ngIf="r.kind === 'element' && r.node.start" [title]="'Positions ' + r.node.start + '–' + (r.node.start + r.node.length! - 1) + ', length ' + r.node.length">{{ r.node.start }}+{{ r.node.length }}</span>
       <span class="fmark m" *ngIf="r.kind === 'element' && isMandatory(r)" title="Mandatory">(M)</span>
     </div>
     <input class="tm-formula" type="text" spellcheck="false"

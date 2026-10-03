@@ -2,7 +2,7 @@ import { Injectable, computed, effect, signal, untracked } from '@angular/core';
 import {
   FieldNode, FunctionLibrary, JarFunction, LlmProviderConfig, MappingLink, RowProblem, MappingRule, MappingWorkspace,
   ProjectSettings, RootCondition, SourceFormat, SourceRef, SourceSpec, Statement, StatementKind,
-  TargetSpec, TargetStructure, VariableRule,
+  TargetSpec, TargetStructure, VarType, VariableRule,
 } from '../models/api.models';
 import {
   LoopRef, branchKey, copyPairs, displayMappingFormula, hasElementChildren, displaySelect, displayTest, newId, normalizeStatement,
@@ -38,15 +38,19 @@ export interface UiSource extends SourceSpec {
   raw: string;
   collapsed: Set<string>;
   panelCollapsed: boolean;
+  /** CSV: the header line the last parse used (shown when auto-detecting). */
+  csvDetected?: number | null;
 }
 
 export interface UiTarget extends TargetSpec {
   ready: boolean;
+  csvDetected?: number | null;
   raw: string;
   collapsed: Set<string>;
 }
 
-export type RowKind = 'element' | 'for-each' | 'for-each-group' | 'if' | 'choose' | 'when' | 'otherwise';
+export type RowKind = 'element' | 'for-each' | 'for-each-group' | 'if' | 'choose' | 'when' | 'otherwise'
+  | 'var-header' | 'variable' | 'local-variable';
 
 /** One row of the target mapping tree: an element, or a statement around it. */
 export interface TreeRow {
@@ -84,6 +88,8 @@ export interface TreeRow {
   /** Element rows: this mapping copies a whole source element (explicit Copy-Of, or a plain
    * path mapped onto an element that has children). */
   isCopy: boolean;
+  /** Global variable rows. */
+  variable?: VariableRule;
 }
 
 let sourceSeq = 0;
@@ -267,6 +273,16 @@ export class WorkspaceService {
       });
     walk(tree, 0);
     this.targetCollapsed.set(collapsed);
+  }
+
+  /** SWIFT MT and fixed-width targets are written as text (an MT message / a positional record)
+   * by default, or as XML. */
+  readonly isTextTarget = computed(() => this.target().type === 'swift' || this.target().type === 'fixed');
+  readonly textOutputLabel = computed(() => (this.target().type === 'swift' ? 'SWIFT MT' : 'Fixed width'));
+  readonly textOutput = computed(() => this.target().output_format !== 'xml');
+
+  setTextOutput(text: boolean): void {
+    this.patchTarget({ output_format: text ? (this.target().type === 'swift' ? 'swift' : 'fixed') : 'xml' });
   }
 
   setTargetType(type: SourceFormat): void {
@@ -499,6 +515,13 @@ export class WorkspaceService {
       const st = stmts[i];
       const tag = tagOf(n);
       const b = base(n, depth, scopes, ctx, hidden);
+      if (st.kind === 'variable') {
+        // declared just before the element: a sibling row, visible to the element and below
+        rows.push({ ...b, key: `s|${st.id}`, kind: 'local-variable', label: `$${st.name || '?'} - [Variable]`,
+          formula: st.select ?? '', stmt: st, expandable: false, collapsed: false });
+        wrapped(n, stmts, i + 1, depth, scopes, ctx, hidden);
+        return;
+      }
       if (st.kind === 'for-each' || st.kind === 'for-each-group') {
         const label = st.kind === 'for-each' ? `${tag} - [For-Each]` : `${tag} - [For-Each-Group]`;
         const c = statementRow(`s|${st.id}`, st.kind, label, displaySelect(st), st, b);
@@ -552,6 +575,21 @@ export class WorkspaceService {
       nodes(n.children, depth + 1, scopes, ctx, hidden || isCollapsed || excluded);
     };
 
+    // Global variables first (declared once, usable everywhere as $name).
+    const vars = this.variables();
+    const varsCollapsed = collapsed.has('vh');
+    rows.push({
+      ...base0({ name: 'Variables', path: '$', type: 'object', mandatory: false, children: [] }, 0, [], [], false),
+      key: 'vh', kind: 'var-header', label: `Variables (${vars.length})`, formula: '',
+      expandable: vars.length > 0, collapsed: varsCollapsed, hasContent: vars.length > 0,
+    });
+    for (const v of vars) {
+      rows.push({
+        ...base0({ name: `$${v.name}`, path: `$${v.name}`, type: 'string', mandatory: false, children: [] }, 1, [], [], varsCollapsed),
+        key: `v|${v.id}`, kind: 'variable', label: `$${v.name}`, formula: displayMappingFormula(v.transform, v.inputs),
+        expandable: false, collapsed: false, hasContent: true, variable: v,
+      });
+    }
     nodes(this.target().fields, 0, [], [], false);
     return rows;
   }
@@ -582,6 +620,17 @@ export class WorkspaceService {
     this.bumpLayout();
     setTimeout(() => document.querySelector(`[data-row-key="${CSS.escape(row?.key ?? '')}"]`)
       ?.scrollIntoView({ block: 'center' }), 50);
+  }
+
+  /** Source side: which alternative of a choice to work with (display only). */
+  selectSourceChoice(sourceId: string, group: string, path: string | null): void {
+    const src = this.sources().find((x) => x.id === sourceId);
+    if (!src) return;
+    const sel = { ...(src.choice_selections ?? {}) };
+    if (path) sel[group] = path;
+    else delete sel[group];
+    this.patchSource(sourceId, { choice_selections: sel });
+    this.bumpLayout();
   }
 
   /** Picks one alternative of an xs:choice (null clears the selection). */
@@ -628,6 +677,14 @@ export class WorkspaceService {
   }
 
   setRowFormula(row: TreeRow, text: string): void {
+    if (row.kind === 'variable' && row.variable) {
+      this.updateVariable(row.variable.id, { transform: text, inputs: [] });
+      return;
+    }
+    if (row.kind === 'local-variable' && row.stmt) {
+      this.updateStatementById(row.stmt.id, { select: text });
+      return;
+    }
     if (row.kind === 'element' && hasElementChildren(row.node) && resolvePath(text, row.ctx, this.sourceIds())) {
       this.setFormula(row.node.path, row.scope, text, 'copy-of');  // a whole element: copy it
     } else if (row.kind === 'element') {
@@ -708,12 +765,12 @@ export class WorkspaceService {
     });
   }
 
-  private addStatementOn(path: string, scopes: string[], kind: StatementKind, formula = ''): Statement {
+  addStatementOn(path: string, scopes: string[], kind: StatementKind, formula = ''): Statement {
     const existing = this.structureAt(path, scopes);
     const scope = existing ? existing.scope ?? '' : scopes[scopes.length - 1] ?? '';
     const st: Statement = {
       id: newId('st'), kind, inputs: [], select: kind === 'for-each' || kind === 'for-each-group' ? formula : '',
-      group_by: '',
+      group_by: '', ...(kind === 'variable' ? { name: this.uniqueVarName(), var_type: 'string' as VarType } : {}),
       test: kind === 'if' ? formula : '',
       whens: kind === 'choose' ? [{ id: newId('w'), test: formula, value: '' }] : [],
       otherwise: kind === 'choose' ? '' : null,
@@ -806,6 +863,13 @@ export class WorkspaceService {
 
   /** Drops mappings/statements whose choose branch no longer exists. */
   private gcScopes(): void {
+    for (let n = -1; n !== this.mappings().length + this.structures().length;) {
+      n = this.mappings().length + this.structures().length;
+      this.gcScopesOnce();
+    }
+  }
+
+  private gcScopesOnce(): void {
     const live = new Set<string>(['']);
     this.structures().forEach((s) => s.statements.forEach((st) => {
       if (st.kind !== 'choose') return;
@@ -816,9 +880,69 @@ export class WorkspaceService {
     this.structures.update((list) => list.filter((s) => live.has(s.scope ?? '')));
   }
 
+  /** Is this the root element of the target tree (top-level, outside any branch)? */
+  isRootRow(row: TreeRow): boolean {
+    return row.kind === 'element' && !row.node.path.includes('.') && !row.scope;
+  }
+
+  /** What "Clear mapping" on a row removes. Element / statement rows clear every mapping and statement
+   * at or below that element, in the row's own branch scope. Removed choices take their branches'
+   * mappings with them. [When] / [Otherwise] rows clear their branch. The root row also clears global
+   * variables. The Variables header clears only the global variables. */
+  private clearPlan(row: TreeRow): { mappings: Set<string>; structs: Set<TargetStructure>; stmts: number; vars: number } {
+    const mappings = new Set<string>();
+    const structs = new Set<TargetStructure>();
+    const root = this.isRootRow(row);
+    const vars = root || row.kind === 'var-header' ? this.variables().length : 0;
+    if (row.kind === 'var-header' || row.kind === 'variable') return { mappings, structs, stmts: 0, vars };
+    const P = row.node.path;
+    const under = (t: string) => t === P || t.startsWith(P + '.');
+    const branch = row.kind === 'when' || row.kind === 'otherwise' ? row.branchKey : null;
+    const dead = new Set<string>(branch ? [branch] : []);
+    const inPlan = (target: string, scope: string) =>
+      dead.has(scope) || (!branch && scope === (row.scope ?? '') && under(target));
+    // Removing a choose kills its branch scopes, which may hold further choices: repeat until stable.
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const s of this.structures()) {
+        if (structs.has(s) || !inPlan(s.target, s.scope ?? '')) continue;
+        structs.add(s);
+        grew = true;
+        for (const st of s.statements) {
+          if (st.kind !== 'choose') continue;
+          st.whens.forEach((_, i) => dead.add(branchKey(st, i)));
+          if (st.otherwise !== null) dead.add(otherwiseKey(st));
+        }
+      }
+    }
+    this.mappings().forEach((m) => { if (inPlan(m.target, m.scope ?? '')) mappings.add(m.id); });
+    const stmts = [...structs].reduce((n, s) => n + s.statements.length, 0);
+    return { mappings, structs, stmts, vars };
+  }
+
+  /** Counts for the confirmation of "Clear mapping" on this row. */
+  clearPreview(row: TreeRow): { mappings: number; stmts: number; vars: number } {
+    const p = this.clearPlan(row);
+    return { mappings: p.mappings.size, stmts: p.stmts, vars: p.vars };
+  }
+
+  /** "Clear mapping" from the right-click menu: this row and everything below it (see clearPlan). */
+  clearBelow(row: TreeRow): void {
+    const p = this.clearPlan(row);
+    this.mappings.update((list) => list.filter((m) => !p.mappings.has(m.id)));
+    this.structures.update((list) => list.filter((s) => !p.structs.has(s)));
+    if (p.vars) this.variables.set([]);
+    const t = this.detailTarget();
+    if (t && !this.mappings().some((m) => m.target === t)) this.detailTarget.set(null);
+    this.gcScopes();
+    this.bumpLayout();
+  }
+
   /** Clears the row: an element's mapping, or removes a statement. */
   clearRow(row: TreeRow): void {
-    if (row.kind === 'element') this.setFormula(row.node.path, row.scope, '');
+    if (row.kind === 'variable' && row.variable) this.removeVariable(row.variable.id);
+    else if (row.kind === 'var-header') return;
+    else if (row.kind === 'element') this.setFormula(row.node.path, row.scope, '');
     else if (row.kind === 'when' && row.stmt) this.removeWhen(row.stmt.id, row.branchIndex);
     else if (row.kind === 'otherwise' && row.stmt) this.setOtherwise(row.stmt.id, false);
     else if (row.stmt) this.removeStatementById(row.stmt.id);
@@ -875,9 +999,54 @@ export class WorkspaceService {
   }
 
   // ------------------------------------------------------------ variables
-  addVariable(): void {
+  addVariable(varType: VarType = 'string'): VariableRule {
     varIdSeq += 1;
-    this.variables.update((list) => [...list, { id: `v${varIdSeq}`, name: `var${varIdSeq}`, inputs: [], transform: '' }]);
+    const v: VariableRule = { id: newId('v'), name: this.uniqueVarName(), inputs: [], transform: '', var_type: varType };
+    this.variables.update((list) => [...list, v]);
+    return v;
+  }
+
+  /** var1, var2 … not used by any global or local variable yet. */
+  uniqueVarName(): string {
+    const used = new Set([
+      ...this.variables().map((v) => v.name),
+      ...this.structures().flatMap((s) => s.statements.filter((st) => st.kind === 'variable').map((st) => st.name ?? '')),
+    ]);
+    let i = 1;
+    while (used.has(`var${i}`)) i++;
+    return `var${i}`;
+  }
+
+  /** Renames a global or local variable and every $name reference in formulas. False if invalid / taken. */
+  renameVariable(row: TreeRow, name: string): boolean {
+    const old = row.kind === 'variable' ? row.variable?.name : row.stmt?.name;
+    if (!old || name === old) return true;
+    if (!/^[A-Za-z_][\w.-]*$/.test(name) || this.sourceIds().includes(name)) return false;
+    const taken = new Set([...this.variables().map((v) => v.name),
+      ...this.structures().flatMap((x) => x.statements.filter((st) => st.kind === 'variable').map((st) => st.name ?? ''))]);
+    if (taken.has(name)) return false;
+    const re = new RegExp(`\\$${old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g');
+    const swap = (t?: string | null) => (t ? t.replace(re, `$${name}`) : t ?? '');
+    if (row.kind === 'variable' && row.variable) this.updateVariable(row.variable.id, { name });
+    this.variables.update((list) => list.map((v) => ({ ...v, transform: swap(v.transform) })));
+    this.mappings.update((list) => list.map((m) => ({ ...m, transform: swap(m.transform) })));
+    this.structures.update((list) => list.map((x) => ({
+      ...x, statements: x.statements.map((st) => ({
+        ...st, name: st.id === row.stmt?.id ? name : st.name, select: swap(st.select), test: swap(st.test),
+        group_by: swap(st.group_by), whens: st.whens.map((w) => ({ ...w, test: swap(w.test), value: swap(w.value) })),
+      })),
+    })));
+    return true;
+  }
+
+  setVariableType(row: TreeRow, varType: VarType): void {
+    if (row.kind === 'variable' && row.variable) this.updateVariable(row.variable.id, { var_type: varType });
+    else if (row.stmt) this.updateStatementById(row.stmt.id, { var_type: varType });
+  }
+
+  /** A variable declared in the tree, right before the element (inside its loops / branches). */
+  addLocalVariable(row: TreeRow): Statement {
+    return this.addStatementOn(row.node.path, row.scopes, 'variable');
   }
 
   removeVariable(id: string): void {
@@ -940,6 +1109,10 @@ export class WorkspaceService {
     this.sources.set(sources);
     sourceSeq = Math.max(sourceSeq, ...sources.map((src) => parseInt(src.id.replace(/\D/g, ''), 10) || 0));
     this.target.set({ ...st.target, collapsed: new Set(st.target?.collapsed ?? []) } as UiTarget);
+    // Swagger / OpenAPI was removed as a format: such sessions continue as JSON Schema.
+    const legacy = (t: string) => (t === 'swagger' ? 'jsonschema' : t) as SourceFormat;
+    this.target.update((t) => ({ ...t, type: legacy(t.type) }));
+    this.sources.update((list) => list.map((src) => ({ ...src, type: legacy(src.type) })));
     this.mappings.set(st.mappings ?? []);
     this.variables.set(st.variables ?? []);
     varIdSeq = Math.max(varIdSeq, ...(st.variables ?? []).map((v) => parseInt(v.id.replace(/\D/g, ''), 10) || 0));
@@ -993,11 +1166,16 @@ export class WorkspaceService {
   /** The exact payload every backend endpoint expects. */
   toWorkspace(): MappingWorkspace {
     return {
-      sources: this.sources().map((s) => ({ id: s.id, label: s.label, type: s.type, fields: s.fields, namespace: s.namespace ?? null })),
+      sources: this.sources().map((s) => ({
+        id: s.id, label: s.label, type: s.type, fields: s.fields, namespace: s.namespace ?? null,
+        choice_selections: s.choice_selections ?? {}, csv_header_row: s.csv_header_row ?? null,
+      })),
       target: {
         type: this.target().type, fields: this.target().fields,
         mandatory_overrides: this.target().mandatory_overrides, namespace: this.target().namespace ?? null,
         choice_selections: this.target().choice_selections ?? {},
+        output_format: this.target().output_format ?? null,
+        csv_header_row: this.target().csv_header_row ?? null,
       },
       mappings: this.mappings(),
       variables: this.variables(),

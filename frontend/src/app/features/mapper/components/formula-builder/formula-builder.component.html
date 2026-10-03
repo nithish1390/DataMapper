@@ -124,10 +124,26 @@
       <label class="field-label">Evaluation context</label>
       <div class="fb-context mono">{{ check()?.context || (r.ctx.length ? '$' + r.ctx[r.ctx.length - 1].sid + '/' + r.ctx[r.ctx.length - 1].segs.join('/') : '/ (document root)') }}</div>
 
+      <div class="var-fields" *ngIf="isVar(r)">
+        <label class="field-label" style="margin: 0;">Name</label>
+        <div class="expr-row"><span class="mono" style="color: var(--ink-soft);">$</span>
+          <input #varNameBox type="text" class="mono" [value]="varName(r)" spellcheck="false"
+                 (change)="renameVar(r, varNameBox)" (keydown.enter)="varNameBox.blur()"></div>
+        <label class="field-label" style="margin: 0;">Type</label>
+        <select [ngModel]="varType(r)" (ngModelChange)="workspace.setVariableType(r, $event)">
+          <option *ngFor="let t of varTypes" [value]="t.id">{{ t.label }}</option>
+        </select>
+        <div class="hint" style="grid-column: 1 / -1; margin: 0;">
+          Use it in any formula as <code>${{ varName(r) }}</code>{{ r.kind === 'local-variable' ? ' — in this element and everything inside it' : '' }}.
+          {{ varType(r) === 'node' ? 'A node variable holds elements: count($' + varName(r) + '), $' + varName(r) + '/Child, or a For-Each over it.' : '' }}
+          Renaming updates every formula that uses it.
+        </div>
+      </div>
+
       <ng-container *ngIf="editable(r); else noFormula">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 9px;">
           <label class="field-label" style="margin: 0;">
-            {{ r.kind === 'for-each' || r.kind === 'for-each-group' ? 'Select (repeating source)' : r.kind === 'element' ? 'Formula' : 'Test' }}
+            {{ r.kind === 'for-each' || r.kind === 'for-each-group' ? 'Select (repeating source)' : r.kind === 'element' || isVar(r) ? 'Formula' : 'Test' }}
             <span class="pending-tag" *ngIf="pending()">● not applied</span>
           </label>
           <div style="display: flex; gap: 4px; align-items: center;">
@@ -216,8 +232,8 @@
         <button class="ghost tiny danger-text" (click)="deleteStatement(r)">🗑 Remove {{ r.kind }}</button>
       </div>
 
-      <label class="field-label">Generated XSLT</label>
-      <pre class="codeprev snippet">{{ snippet() || '…' }}</pre>
+      <label class="field-label" *ngIf="r.kind !== 'variable' && r.kind !== 'var-header'">Generated XSLT</label>
+      <pre class="codeprev snippet" *ngIf="r.kind !== 'variable' && r.kind !== 'var-header'">{{ snippet() || '…' }}</pre>
     </div>
   </div>
 </div>

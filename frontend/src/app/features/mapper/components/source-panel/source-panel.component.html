@@ -10,8 +10,9 @@
       <input type="text" class="src-label" [value]="s.label" (click)="$event.stopPropagation()"
              (change)="workspace.patchSource(s.id, { label: $any($event.target).value })">
       <code class="src-id" title="Use in formulas as ${{ s.id }}/…">${{ s.id }}</code>
-      <button class="ghost tiny" *ngIf="s.ready" [class.on]="showLoader[s.id]" title="Change schema"
-              (click)="$event.stopPropagation(); showLoader[s.id] = !showLoader[s.id]">⚙</button>
+      <button class="ghost tiny edit-btn" *ngIf="s.ready" [class.on]="showLoader[s.id]"
+              title="Edit the schema / payload and parse again"
+              (click)="$event.stopPropagation(); toggleEditor(s.id)">✎ Edit input</button>
       <button class="ghost tiny" title="Remove source" (click)="removeSource(s.id, $event)">✕</button>
     </div>
 
@@ -30,9 +31,24 @@
         </div>
         <input #fileInput type="file" style="display:none" (change)="onFile(s.id, $event)">
       </div>
-      <textarea *ngIf="pasteMode[s.id]" rows="5" [ngModel]="pasteText[s.id]" (ngModelChange)="pasteText[s.id] = $event"
-                placeholder="Paste schema or sample here"></textarea>
-      <button class="primary small" style="width: 100%;" (click)="parse(s.id)">Parse fields</button>
+      <textarea *ngIf="pasteMode[s.id]" [rows]="s.ready ? 12 : 6" class="input-editor" spellcheck="false"
+                [ngModel]="pasteText[s.id]" (ngModelChange)="pasteText[s.id] = $event"
+                [placeholder]="s.type === 'fixed' ? fixedHint : 'Paste a schema or a sample payload (JSON, XML, XSD, CSV, SWIFT MT, Java …)'"></textarea>
+      <div class="hint" *ngIf="s.type === 'fixed'" style="margin: 0;">Upload or paste the <b>layout definition</b> (Field, Start, Length, Type),
+        as text, CSV or Excel. Paste the fixed-width data itself in Test / Run.</div>
+      <label *ngIf="workbook[s.id]?.sheets?.length! > 1" class="csv-hdr-bar">
+        <span class="csv-hdr-label">Sheet</span>
+        <select [ngModel]="workbook[s.id].sheet" (ngModelChange)="pickSheet(s.id, $event)" style="width: auto;">
+          <option *ngFor="let n of workbook[s.id].sheets" [value]="n">{{ n }}</option>
+        </select>
+      </label>
+      <app-csv-header-picker *ngIf="s.type === 'csv'" [text]="csvText(s.id)" [value]="s.csv_header_row"
+                             [detected]="s.csvDetected" (valueChange)="setHeaderRow(s.id, $event)"></app-csv-header-picker>
+      <div class="editor-actions">
+        <button class="primary small" style="flex: 1;" (click)="parse(s.id)">{{ s.ready ? '↻ Re-parse' : 'Parse fields' }}</button>
+        <button class="ghost small" *ngIf="s.ready" (click)="showLoader[s.id] = false">Cancel</button>
+      </div>
+      <div class="hint" *ngIf="s.ready" style="margin: 0;">Mappings are kept; fields that no longer exist show up as problems.</div>
     </div>
 
     <!-- the field tree scrolls on its own, filling the column -->
@@ -46,6 +62,8 @@
         (nodeClick)="onNodeClick(s.id, $event)"
         (nodeMenu)="openMenu(s.id, $event)"
         (toggleCollapse)="workspace.toggleCollapse(s.id, $event)"
+        [choiceSel]="s.choice_selections || {}"
+        (pickChoice)="pickChoice(s.id, $event)"
       ></app-field-tree>
     </div>
   </div>

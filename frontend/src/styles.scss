@@ -436,3 +436,44 @@ button.primary:hover { background: color-mix(in srgb, var(--accent) 85%, black);
 /* statement rows: accent colour + italic bracket text; red is reserved for problems */
 .tm-row.is-stmt .tm-label { color: var(--accent); font-weight: 500; }
 .tm-row.is-stmt.problem .tm-label { color: var(--danger); }
+.tnode.excluded .fpath { color: var(--ink-soft); text-decoration: line-through; opacity: .6; }
+
+/* variables in the target tree / Mapping Builder */
+.tm-row.is-var .tm-label { color: var(--wire); font-weight: 500; }
+.tm-row[data-kind="var-header"] .tm-label { color: var(--ink-soft); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: .3px; }
+.tm-icon[data-kind="variable"], .tm-icon[data-kind="local-variable"], .tm-icon[data-kind="var-header"] { color: var(--wire); font-size: 12px; }
+.var-type { font-family: var(--sans); font-size: 9px; padding: 0 5px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); flex-shrink: 0; }
+.var-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 9px; }
+
+/* SWIFT MT target: output format switch under the Target header */
+.out-fmt {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  border-bottom: 1px solid var(--border); font-size: 11px; color: var(--ink-soft);
+}
+
+/* CSV header row picker */
+.csv-hdr { display: flex; flex-direction: column; gap: 4px; }
+.csv-hdr-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11.5px; }
+.csv-hdr-label { color: var(--ink-soft); font-weight: 600; }
+.csv-hdr-num { width: 64px !important; }
+.csv-preview {
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-soft);
+  max-height: 180px; overflow: auto; font-family: var(--mono, ui-monospace, monospace); font-size: 11px;
+}
+.csv-line { display: flex; gap: 8px; align-items: baseline; padding: 1px 6px; cursor: pointer; white-space: pre; }
+.csv-line:hover { background: var(--hover, rgba(127, 127, 127, 0.12)); }
+.csv-line .ln { color: var(--ink-soft); min-width: 22px; text-align: right; user-select: none; }
+.csv-line .txt { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.csv-line .tag { font-size: 10px; color: var(--accent); font-family: inherit; }
+.csv-line.hdr { background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
+.csv-line.skip .txt { color: var(--ink-soft); text-decoration: line-through; opacity: 0.7; }
+.csv-more { padding: 1px 6px 3px 36px; font-size: 10.5px; }
+
+/* fixed width: start+length badge on fields */
+.fpos { font-size: 10px; color: var(--ink-soft); font-family: var(--mono, ui-monospace, monospace); margin-left: 4px; }
+
+
+/* edit input & re-parse */
+.edit-btn { font-weight: 600; color: var(--accent) !important; }
+.input-editor { font-family: var(--mono) !important; font-size: 11.5px !important; line-height: 1.45; resize: vertical; min-height: 90px; }
+.editor-actions { display: flex; gap: 6px; }

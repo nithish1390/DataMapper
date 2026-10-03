@@ -2,11 +2,22 @@
   <h2>Target <span class="muted" *ngIf="workspace.target().namespace" [title]="workspace.target().namespace!">· ns</span></h2>
   <div style="display: flex; gap: 4px; align-items: center;">
     <button class="ghost tiny" (click)="addRootField()">+ field</button>
-    <button class="ghost tiny" [class.on]="showLoader()" (click)="showLoader.set(!showLoader())">⚙ Schema</button>
+    <button class="ghost tiny edit-btn" [class.on]="showLoader()" (click)="toggleEditor()"
+            [title]="workspace.target().ready ? 'Edit the schema / payload and parse again' : 'Load a schema'">
+      {{ workspace.target().ready ? '✎ Edit input' : '⚙ Schema' }}</button>
     <select [ngModel]="workspace.target().type" (ngModelChange)="workspace.setTargetType($event)"
             style="width: auto; max-width: 124px;">
       <option *ngFor="let f of formats" [value]="f.value">{{ f.label }}</option>
     </select>
+  </div>
+</div>
+
+<div *ngIf="workspace.isTextTarget() && workspace.target().ready" class="out-fmt"
+     title="How the mapped result is written (generated XSLT, Test / Run, downloaded project)">
+  <span>Output</span>
+  <div class="tabbtns">
+    <button [class.active]="workspace.textOutput()" (click)="workspace.setTextOutput(true)">{{ workspace.textOutputLabel() }}</button>
+    <button [class.active]="!workspace.textOutput()" (click)="workspace.setTextOutput(false)">XML</button>
   </div>
 </div>
 
@@ -23,9 +34,25 @@
     <input #fileInput type="file" style="display:none" (change)="onFile($event)">
   </div>
   <div *ngIf="pasteMode">
-    <textarea rows="6" [(ngModel)]="pasteText" placeholder="Paste schema or sample here"></textarea>
+    <textarea [rows]="workspace.target().ready ? 12 : 6" class="input-editor" spellcheck="false" [(ngModel)]="pasteText"
+              [placeholder]="workspace.target().type === 'fixed' ? fixedHint : 'Paste a schema or a sample payload (XSD, XML, JSON, …)'"></textarea>
+    <div class="hint" *ngIf="workspace.target().type === 'fixed'" style="margin: 0;">Upload or paste the <b>layout definition</b>
+      (Field, Start, Length, Type), as text, CSV or Excel.</div>
   </div>
-  <button class="primary small" style="width: 100%;" (click)="parse()">Parse fields</button>
+  <label *ngIf="workbook && workbook.sheets.length > 1" class="csv-hdr-bar">
+    <span class="csv-hdr-label">Sheet</span>
+    <select [ngModel]="workbook.sheet" (ngModelChange)="pickSheet($event)" style="width: auto;">
+      <option *ngFor="let n of workbook.sheets" [value]="n">{{ n }}</option>
+    </select>
+  </label>
+  <app-csv-header-picker *ngIf="workspace.target().type === 'csv'" [text]="csvText()"
+                         [value]="workspace.target().csv_header_row" [detected]="workspace.target().csvDetected"
+                         (valueChange)="setHeaderRow($event)"></app-csv-header-picker>
+  <div class="editor-actions">
+    <button class="primary small" style="flex: 1;" (click)="parse()">{{ workspace.target().ready ? '↻ Re-parse' : 'Parse fields' }}</button>
+    <button class="ghost small" *ngIf="workspace.target().ready" (click)="showLoader.set(false)">Cancel</button>
+  </div>
+  <div class="hint" *ngIf="workspace.target().ready" style="margin: 0;">Mappings are kept; fields that no longer exist show up as problems.</div>
 </div>
 
 <div class="rail-scroll" style="overflow: auto; flex: 1; min-height: 0; padding: 0;">

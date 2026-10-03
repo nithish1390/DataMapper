@@ -8,6 +8,7 @@ import { ConfirmService } from '../../../../shared/components/confirm-dialog/con
 
 const ICON: Record<string, string> = {
   'for-each': '⟳', 'for-each-group': '⧉⟳', if: '?', choose: '⋯', when: '?=', otherwise: '*=',
+  'var-header': '$', variable: '$', 'local-variable': '$',
 };
 
 /** The target side of the mapper, with statements
@@ -140,6 +141,8 @@ export class TargetMapperComponent {
       case 'for-each-group': return 'repeating source, e.g. $s1/Doc/Item';
       case 'if':
       case 'when': return "test, e.g. count(Phone) > 0";
+      case 'variable':
+      case 'local-variable': return "value, e.g. count(Item)  or  $s1/Doc/Field";
       case 'choose': return '';
       case 'otherwise': return '';
       default: return r.node.children.length ? '' : '';
@@ -147,7 +150,26 @@ export class TargetMapperComponent {
   }
 
   editable(r: TreeRow): boolean {
-    return r.kind !== 'choose' && r.kind !== 'otherwise';
+    return r.kind !== 'choose' && r.kind !== 'otherwise' && r.kind !== 'var-header';
+  }
+
+  /** Data type shown next to a variable's name. */
+  varType(r: TreeRow): string {
+    return (r.kind === 'variable' ? r.variable?.var_type : r.stmt?.var_type) ?? 'string';
+  }
+
+  addGlobalVariable(): void {
+    const v = this.workspace.addVariable();
+    if (this.workspace.targetCollapsed().has('vh')) this.workspace.toggleRow('vh');
+    const row = this.workspace.rows().find((x) => x.key === `v|${v.id}`);
+    if (row) this.workspace.selectRow(row);
+  }
+
+  addLocalVariable(r: TreeRow | null): void {
+    if (!r || r.kind !== 'element') return this.toast.show('Select a target element first — the variable is declared right before it.', true);
+    const st = this.workspace.addLocalVariable(r);
+    const row = this.workspace.rows().find((x) => x.key === `s|${st.id}`);
+    if (row) this.workspace.selectRow(row);
   }
 
   // ------------------------------------------------------------- actions
@@ -203,10 +225,39 @@ export class TargetMapperComponent {
     }
   }
 
+  /** Right-click "Clear mapping": the row and everything below it (the whole mapping at the root). */
+  clearLabel(r: TreeRow): string {
+    if (r.kind === 'var-header') return 'Clear all variables';
+    if (this.workspace.isRootRow(r)) return 'Clear all mappings';
+    if (r.kind === 'when' || r.kind === 'otherwise') return 'Clear mappings in this branch';
+    return r.expandable || r.stmt ? 'Clear mapping (this and all below)' : 'Clear mapping';
+  }
+
+  async clearBelow(r: TreeRow | null): Promise<void> {
+    if (!r) return;
+    const p = this.workspace.clearPreview(r);
+    if (!p.mappings && !p.stmts && !p.vars) return this.toast.show('Nothing mapped here.');
+    const parts = [
+      p.mappings ? `${p.mappings} mapping${p.mappings > 1 ? 's' : ''}` : '',
+      p.stmts ? `${p.stmts} statement${p.stmts > 1 ? 's' : ''} (For-Each, Choice, If, local variables …)` : '',
+      p.vars ? `${p.vars} global variable${p.vars > 1 ? 's' : ''}` : '',
+    ].filter(Boolean).join(', ');
+    const name = r.node.name;
+    const where = r.kind === 'var-header' ? 'the Variables section'
+      : this.workspace.isRootRow(r) ? `the whole mapping (root ${name})`
+      : r.kind === 'when' || r.kind === 'otherwise' ? `this ${r.label} branch of ${name} (the branch itself is kept)`
+      : `${name} and all its child fields`;
+    if (await this.confirm.ask(`This removes ${parts} from ${where}. Target fields themselves are not deleted.`,
+      this.clearLabel(r) + '?', 'Yes, clear')) {
+      this.workspace.clearBelow(r);
+      this.toast.show('Mapping cleared.');
+    }
+  }
+
   async clear(r: TreeRow | null): Promise<void> {
     if (!r) return;
-    if (r.kind === 'element' && !r.mapping) return this.toast.show('Nothing mapped on this row.');
-    const what = r.kind === 'element' ? `the mapping of ${r.label}` :
+    if (r.kind === 'element' || r.kind === 'var-header') return this.clearBelow(r);
+    const what = r.kind === 'variable' ? `the variable ${r.label}` : r.kind === 'local-variable' ? `the variable ${r.label.replace(' - [Variable]', '')}` :
       r.kind === 'when' ? 'this [When] branch and its mappings' :
       r.kind === 'otherwise' ? 'the [Otherwise] branch and its mappings' :
       r.kind === 'choose' ? `the Choice on ${r.node.name} (the first [When] branch's mappings are kept)` : `the ${r.label} statement`;
@@ -232,6 +283,8 @@ export class TargetMapperComponent {
     const choose = r.stmt?.kind === 'choose';
     const items: MenuItem[] = [
       { label: 'Edit', hint: 'Mapping Builder', action: () => this.workspace.selectRow(r) },
+      { label: 'Add variable here (before this element)', disabled: !isEl, action: () => this.addLocalVariable(r) },
+      { label: 'Add global variable', action: () => this.addGlobalVariable() },
       ...(r.choiceGroup && isEl ? [{ label: this.choiceSelected(r) ? 'Clear choice selection' : `Use this choice option (${r.label})`,
         action: () => this.pickChoice(r) } as MenuItem] : []),
       {
@@ -273,8 +326,12 @@ export class TargetMapperComponent {
       { label: 'Copy formula', disabled: !r.formula, action: () => this.copyFormula(r) },
       { label: 'Paste formula', disabled: !this.clipboard || !this.editable(r),
         action: () => this.workspace.setRowFormula(r, this.clipboard) },
-      { label: isEl ? 'Clear mapping' : r.kind === 'when' ? 'Delete [When]' : r.kind === 'otherwise' ? 'Delete [Otherwise]' : 'Delete statement',
-        disabled: isEl && !r.mapping, action: () => this.clear(r) },
+      { separator: true },
+      ...(r.kind === 'variable' || r.kind === 'local-variable' ? [] : [{ label: this.clearLabel(r), disabled: !this.hasClearable(r),
+        action: () => this.clearBelow(r) } as MenuItem]),
+      ...(isStmt && r.kind !== 'var-header' ? [{ label: r.kind === 'variable' || r.kind === 'local-variable' ? 'Delete variable'
+        : r.kind === 'when' ? 'Delete [When]' : r.kind === 'otherwise' ? 'Delete [Otherwise]' : 'Delete statement',
+        action: () => this.clear(r) } as MenuItem] : []),
     ];
     if (isEl) {
       items.push({ separator: true }, {
@@ -287,6 +344,11 @@ export class TargetMapperComponent {
       });
     }
     this.menu.open(event, items);
+  }
+
+  private hasClearable(r: TreeRow): boolean {
+    const p = this.workspace.clearPreview(r);
+    return !!(p.mappings || p.stmts || p.vars);
   }
 
   private copyFormula(r: TreeRow): void {

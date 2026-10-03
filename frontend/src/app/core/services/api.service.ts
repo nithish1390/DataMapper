@@ -15,8 +15,8 @@ export class ApiService {
 
   constructor(private http: HttpClient) {}
 
-  parse(format: SourceFormat, text: string): Observable<ParseResponse> {
-    return this.http.post<ParseResponse>(`${this.base}/parse`, { format, text });
+  parse(format: SourceFormat, text: string, csvHeaderRow: number | null = null): Observable<ParseResponse> {
+    return this.http.post<ParseResponse>(`${this.base}/parse`, { format, text, csv_header_row: csvHeaderRow });
   }
 
   codegenPreview(workspace: MappingWorkspace): Observable<CodegenResponse> {

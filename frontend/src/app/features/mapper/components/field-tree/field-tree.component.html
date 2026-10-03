@@ -8,6 +8,7 @@
       [class.problem]="isProblem(node)"
       [class.problem-ancestor]="isProblemAncestor(node)"
       [class.detail-open]="isDetailOpen(node)"
+      [class.excluded]="isExcluded(node)"
       [attr.data-side]="side"
       [attr.data-path]="node.path"
       draggable="true"
@@ -22,9 +23,12 @@
       </span>
       <ng-template #noCaret><span class="caret"></span></ng-template>
 
+      <span class="tm-choice" *ngIf="node.choice && !isTarget()" [class.on]="isPicked(node)" [title]="choiceTitle(node)"
+            (click)="$event.stopPropagation(); pickChoice.emit({ group: node.choice!, path: node.path })">{{ isPicked(node) ? '◉' : '○' }}</span>
       <span class="tm-icon" [class.leaf]="node.type !== 'object' && node.type !== 'array'">{{ icon(node) }}</span>
       <span class="fpath">{{ (node.name || node.path).replace('[]', '') }}</span>
       <span class="fmark" *ngIf="node.type === 'array'" title="Repeating">[*]</span>
+      <span class="fpos" *ngIf="node.start" [title]="'Positions ' + node.start + '–' + (node.start + node.length! - 1) + ', length ' + node.length">{{ node.start }}+{{ node.length }}</span>
       <span class="fmark m" *ngIf="!isTarget() && node.mandatory" title="Mandatory">(M)</span>
 
       <span class="stmt-badge" *ngFor="let b of stmtBadges[node.path] || []" [class]="'stmt-badge ' + b" [title]="b">{{ badgeLabel(b) }}</span>
@@ -62,6 +66,8 @@
         [stmtBadges]="stmtBadges"
         (nodeClick)="nodeClick.emit($event)"
         (nodeMenu)="nodeMenu.emit($event)"
+        [choiceSel]="choiceSel"
+        (pickChoice)="pickChoice.emit($event)"
         (dropped)="dropped.emit($event)"
         (toggleCollapse)="toggleCollapse.emit($event)"
         (toggleMandatory)="toggleMandatory.emit($event)"

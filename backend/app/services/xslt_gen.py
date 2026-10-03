@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.models.schemas import FieldNode, MappingWorkspace, SourceRef, Statement
+from app.services import fixed_width, swift_mt
 from app.services.structure import (
     LoopCtx, Structure, branch_key, copy_pairs, has_element_children, is_attribute, otherwise_key,
     relative_to_context,
@@ -23,6 +24,7 @@ from app.services.transform_dsl import KNOWN_FUNCS, XPATH2_FUNCS, ExprNode, coll
 XSL_NS = "http://www.w3.org/1999/XSL/Transform"
 XS_NS = "http://www.w3.org/2001/XMLSchema"
 EXSLT_DATE_NS = "http://exslt.org/dates-and-times"
+EXSLT_COMMON_NS = "http://exslt.org/common"
 
 
 def _attr(s: str) -> str:
@@ -72,6 +74,9 @@ class XsltWriter:
         return self._absolute(ref.source_id, rel)
 
     def ref_xpath(self, ref: ExprNode, ctx: list[LoopCtx]) -> str:
+        if ref.absolute and ref.source_id not in self.src_index and ref.source_id in self.s.var_names:
+            # a path into a node variable: $party/Name
+            return f"${ref.source_id}" + ("/" + self._steps(ref.steps, self.s.first_source()) if ref.steps else "")
         if ref.group:
             sid = ctx[-1].source_id if ctx else self.s.first_source()
             return "current-group()" + ("/" + self._steps(ref.steps, sid) if ref.steps else "")
@@ -150,6 +155,12 @@ class XsltWriter:
             return [f'{ind}<xsl:for-each select="{_attr(sel if isinstance(sel, str) else "")}">',
                     *self.wrap(n, rest, inner_ctx, scopes, depth + 1, override),
                     f"{ind}</xsl:for-each>"]
+        if st.kind == "variable":
+            # declared right before the element: visible to it and everything inside it
+            if not st.name:
+                return self.wrap(n, rest, ctx, scopes, depth, override)
+            return [self.declare(st.name, st.var_type, st.select, st.inputs, ctx, ind),
+                    *self.wrap(n, rest, ctx, scopes, depth, override)]
         if st.kind == "for-each-group":
             sel_node = self.s.select_expr(st)
             if sel_node is None:
@@ -316,20 +327,41 @@ class XsltWriter:
         return " | ".join(dict.fromkeys(paths))
 
     # ---------------------------------------------------------- document
+    _XS = {"string": "xs:string", "integer": "xs:integer?", "number": "xs:decimal?", "boolean": "xs:boolean",
+           "date": "xs:date?", "dateTime": "xs:dateTime?", "node": "node()*"}
+
+    def declare(self, name: str, var_type: str, text: str, inputs: list[SourceRef], ctx: list[LoopCtx],
+                ind: str) -> str:
+        """An xsl:variable of the given data type (typed with `as` in XSLT 2.0)."""
+        node = parse_expr(text if text.strip() else ("{0}" if inputs else "''"))
+        as_attr = f' as="{self._XS.get(var_type, "xs:string")}"' if self.v2 else ""
+        if node.type == "call" and node.func in ("IF", "WHEN"):
+            return f'{ind}<xsl:variable name="{name}"{as_attr}>{self.value(node, inputs, ctx)}</xsl:variable>'
+        if var_type == "node":
+            sel = self.xp(node, inputs, ctx)  # the whole node-set, not just its first item
+        else:
+            sel = self.xp(node, inputs, ctx, single=True)
+            sel = sel if isinstance(sel, str) else "''"
+            if self.v2:
+                cast = {"string": "string({x})", "boolean": "(string({x}) = ('true', '1'))",
+                        "integer": "(if (string({x}) = '') then () else xs:integer(number({x})))",
+                        "number": "(if (string({x}) = '') then () else xs:decimal({x}))",
+                        "date": "(if (string({x}) = '') then () else xs:date(substring(string({x}), 1, 10)))",
+                        "dateTime": "(if (string({x}) = '') then () else xs:dateTime(string({x})))"}.get(var_type, "{x}")
+                sel = cast.format(x=sel)
+            elif var_type in ("integer", "number"):
+                sel = f"number({sel})"
+            elif var_type == "boolean":
+                sel = f"(string({sel}) = 'true' or string({sel}) = '1')"
+        return f'{ind}<xsl:variable name="{name}"{as_attr} select="{_attr(sel if isinstance(sel, str) else "")}"/>'
+
     def variables(self) -> list[str]:
-        out = []
-        for v in self.ws.variables:
-            node = parse_expr(v.transform if v.transform.strip() else ("{0}" if v.inputs else "''"))
-            if node.type == "call" and node.func in ("IF", "WHEN"):
-                out.append(f'  <xsl:variable name="{v.name}">{self.value(node, v.inputs, [])}</xsl:variable>')
-            else:
-                sel = self.xp(node, v.inputs, [])
-                out.append(f'  <xsl:variable name="{v.name}" select="{_attr(sel if isinstance(sel, str) else "")}"/>')
-        return out
+        return [self.declare(v.name, v.var_type, v.transform, v.inputs, [], "  ") for v in self.ws.variables if v.name]
 
     def body(self) -> list[str]:
         ws = self.ws
-        if ws.target.type == "xsd" or any(n.children for n in ws.target.fields):
+        # flat targets get a <target> root, except fixed width (wrapped in <Record> by stylesheet())
+        if ws.target.type in ("xsd", "xml", "fixed") or any(n.children for n in ws.target.fields):
             inner = self.nodes(ws.target.fields, [], [], 2)
         else:
             inner = ["    <target>", *self.nodes(ws.target.fields, [], [], 3), "    </target>"]
@@ -380,10 +412,37 @@ class XsltWriter:
         params = [f'  <xsl:param name="source{i + 1}" select="/.."/>  <!-- {s.label}: pass as a node-set -->'
                   for i, s in enumerate(ws.sources) if i > 0]
         n_stmts = sum(len(s.statements) for s in ws.structures)
+        output = '  <xsl:output method="xml" indent="yes" encoding="UTF-8"/>'
+        mt_templates: list[str] = []
+        text_out = None  # (wrapper element, its attribute text, mode of the writing templates, templates)
+        if ws.target.type == "swift":
+            # The five blocks are built inside one <SwiftMessage> element ...
+            mt = swift_mt.tree_message_type(ws.target.fields)
+            text_out = (swift_mt.WRAPPER, f' type="MT{mt}"' if mt else "", "mt",
+                        lambda: swift_mt.xslt_templates(ws.target.fields, mt))
+        elif ws.target.type == "fixed":
+            # ... the fields of a fixed-width record inside one <Record> element ...
+            text_out = (fixed_width.WRAPPER, "", "fixed", lambda: fixed_width.xslt_templates(ws.target.fields))
+        if text_out:
+            wrapper, attrs, mode, templates = text_out
+            wrapped = [f"    <{wrapper}{attrs}>", *["  " + line for line in body], f"    </{wrapper}>"]
+            if text_output(ws):
+                # ... and, for text output, written as text by the templates of that mode.
+                output = '  <xsl:output method="text" encoding="UTF-8"/>'
+                sel = f"$out-record/{wrapper}" if self.v2 else f"exsl:node-set($out-record)/{wrapper}"
+                if not self.v2:
+                    ns_decls.append(f'xmlns:exsl="{EXSLT_COMMON_NS}"')
+                    excluded.append("exsl")
+                    exclude = f' exclude-result-prefixes="{" ".join(excluded)}"'
+                body = ['    <xsl:variable name="out-record">', *["  " + line for line in wrapped], "    </xsl:variable>",
+                        f'    <xsl:apply-templates select="{sel}" mode="{mode}"/>']
+                mt_templates = templates()
+            else:
+                body = wrapped
         return "\n".join([
             '<?xml version="1.0" encoding="UTF-8"?>',
             f'<xsl:stylesheet version="{self.version}" {" ".join(ns_decls)}{exclude}>',
-            '  <xsl:output method="xml" indent="yes" encoding="UTF-8"/>',
+            output,
             *(["  <!-- XSLT 2.0: run with an XSLT 2.0+ processor (e.g. Saxon-HE). -->"] if self.v2 else []),
             *params,
             *variables,
@@ -394,9 +453,15 @@ class XsltWriter:
             *body,
             "  </xsl:template>",
             *(self.copy_ns_template() if self.uses_copy_ns else []),
+            *mt_templates,
             "</xsl:stylesheet>",
             "",
         ])
+
+
+def text_output(ws: MappingWorkspace) -> bool:
+    """SWIFT MT and fixed-width targets are written as text unless XML output was chosen."""
+    return ws.target.type in ("swift", "fixed") and (ws.target.output_format or "text") != "xml"
 
 
 def generate_xslt(ws: MappingWorkspace) -> str:

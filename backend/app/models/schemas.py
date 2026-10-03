@@ -12,8 +12,9 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 SourceFormat = Literal[
-    "jsonschema", "jsonobject", "xsd", "csv", "swagger", "swift", "pojo"
+    "jsonschema", "jsonobject", "xsd", "xml", "csv", "fixed", "swift", "pojo"
 ]
+VarType = Literal["string", "integer", "number", "boolean", "date", "dateTime", "node"]
 FieldType = Literal["string", "integer", "number", "boolean", "object", "array"]
 
 
@@ -26,6 +27,8 @@ class FieldNode(BaseModel):
     mandatory: bool = False
     children: list["FieldNode"] = Field(default_factory=list)
     choice: Optional[str] = None  # xs:choice group id when this element is one alternative
+    start: Optional[int] = None   # fixed width: 1-based start position
+    length: Optional[int] = None  # fixed width: field length
 
 
 FieldNode.model_rebuild()
@@ -34,13 +37,20 @@ FieldNode.model_rebuild()
 class ParseRequest(BaseModel):
     format: SourceFormat
     text: str
+    # CSV: 1-based line of the column names; 0 = no header row; None = detect
+    csv_header_row: Optional[int] = None
 
 
 class ParseResponse(BaseModel):
     tree: list[FieldNode]
     schema_name: Optional[str] = None
     field_count: int = 0
-    namespace: Optional[str] = None  # XSD targetNamespace (qualified elements)
+    namespace: Optional[str] = None  # XSD targetNamespace / XML sample root namespace
+    format: Optional[str] = None     # the format actually used (may differ from the one chosen)
+    note: Optional[str] = None       # e.g. "Looks like JSON sample, not JSON Schema — parsed as JSON sample."
+    # choice group -> alternative present in the parsed message (e.g. SWIFT 50F out of 50A / 50F / 50K)
+    choice_defaults: dict[str, str] = Field(default_factory=dict)
+    csv_header_row: Optional[int] = None  # CSV: the header line used (detected or as given)
 
 
 class SourceRef(BaseModel):
@@ -69,9 +79,10 @@ class VariableRule(BaseModel):
     name: str
     inputs: list[SourceRef] = Field(default_factory=list)
     transform: str = ""
+    var_type: VarType = "string"
 
 
-StatementKind = Literal["for-each", "for-each-group", "if", "choose"]
+StatementKind = Literal["for-each", "for-each-group", "if", "choose", "variable"]
 
 
 class ChooseBranch(BaseModel):
@@ -90,6 +101,8 @@ class Statement(BaseModel):
     inputs: list[SourceRef] = Field(default_factory=list)
     select: str = ""                                 # for-each / for-each-group (formula path); falls back to inputs[0]
     group_by: str = ""                               # for-each-group (XSLT 2.0): grouping key formula
+    name: str = ""                                   # variable: its name (used as $name)
+    var_type: VarType = "string"                     # variable: data type
     test: str = ""                                   # if
     whens: list[ChooseBranch] = Field(default_factory=list)  # choose
     otherwise: Optional[str] = None                  # choose: None = no branch, "" = field mapping
@@ -112,6 +125,9 @@ class SourceSpec(BaseModel):
     type: SourceFormat
     fields: list[FieldNode] = Field(default_factory=list)
     namespace: Optional[str] = None
+    # choice group -> alternative the user is working with (display only: all stay mappable)
+    choice_selections: dict[str, str] = Field(default_factory=dict)
+    csv_header_row: Optional[int] = None  # CSV: line of the column names (0 = none, None = detect)
 
 
 class TargetSpec(BaseModel):
@@ -121,6 +137,10 @@ class TargetSpec(BaseModel):
     # xs:choice group id -> path of the alternative the user picked
     choice_selections: dict[str, str] = Field(default_factory=dict)
     mandatory_overrides: dict[str, bool] = Field(default_factory=dict)
+    # SWIFT MT targets: write the result as MT text ("swift", the default) or as XML ("xml")
+    # SWIFT MT / fixed-width targets: as text (the default: "swift" / "fixed") or as XML ("xml")
+    output_format: Optional[Literal["swift", "fixed", "xml"]] = None
+    csv_header_row: Optional[int] = None
 
 
 class ProjectSettings(BaseModel):

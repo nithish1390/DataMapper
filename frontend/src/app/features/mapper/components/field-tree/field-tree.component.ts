@@ -29,6 +29,9 @@ export class FieldTreeComponent {
   /** target path -> statement kinds ('for-each' | 'if' | 'choose' | 'copy-of'), outermost first */
   @Input() stmtBadges: Record<string, string[]> = {};
 
+  /** choice group -> picked alternative (source trees: SWIFT 50A / 50F / 50K, XSD choices). */
+  @Input() choiceSel: Record<string, string> = {};
+  @Output() pickChoice = new EventEmitter<{ group: string; path: string }>();
   @Output() nodeClick = new EventEmitter<FieldNode>();
   @Output() nodeMenu = new EventEmitter<{ node: FieldNode; event: MouseEvent }>();
   @Output() dropped = new EventEmitter<{ node: FieldNode; payload: DragPayload }>();
@@ -42,7 +45,22 @@ export class FieldTreeComponent {
   isTarget = () => this.side === 'target';
 
   isCollapsed(node: FieldNode): boolean {
-    return this.collapsed.has(node.path);
+    return this.collapsed.has(node.path) || this.isExcluded(node);
+  }
+
+  /** Another alternative of this node's choice is picked. */
+  isExcluded(node: FieldNode): boolean {
+    const sel = node.choice ? this.choiceSel[node.choice] : undefined;
+    return !!sel && sel !== node.path;
+  }
+
+  isPicked(node: FieldNode): boolean {
+    return !!node.choice && this.choiceSel[node.choice] === node.path;
+  }
+
+  choiceTitle(node: FieldNode): string {
+    const alts = this.nodes.filter((n) => n.choice === node.choice).map((n) => n.name.replace('[]', ''));
+    return `Choice — one of ${alts.join(' | ')}. Click to ${this.isPicked(node) ? 'clear the selection' : 'work with this option'}.`;
   }
 
   /** Type icon: ABC text, 123 integer, 1.2 decimal, T/F boolean, ▤ element. */

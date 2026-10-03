@@ -27,7 +27,7 @@ datamapper/
 │   └── app/
 │       ├── models/schemas.py       Pydantic models (source of truth for the API shape)
 │       ├── services/
-│       │   ├── parsers.py          JSON Schema / sample / XSD / CSV / Swagger / SWIFT / POJO → tree
+│       │   ├── parsers.py          JSON Schema / sample / XSD / CSV / fixed width / SWIFT / POJO → tree
 │       │   ├── transform_dsl.py    {0}/{1}/$var DSL: parse, evaluate, → Java, → XPath
 │       │   ├── codegen.py          MapStruct mapper, XSLT, JAXB classes, pom.xml, Spring Boot files
 │       │   ├── mapping_logic.py    fuzzy path resolution + mapping-sheet instruction compiler
@@ -103,7 +103,7 @@ compiling-shaped MapStruct interface with real nested `@Mapping` paths, plus the
 
 A few things are intentionally simplified, matching the same limitations the prototype had:
 
-- Non-XSD target/source formats (JSON Schema, CSV, SWIFT MT, POJO, Swagger) still generate a
+- Non-XSD target/source formats (JSON Schema, CSV, fixed width, SWIFT MT, POJO) still generate a
   single **flattened** POJO — only XSD gets real nested JAXB classes.
 - `for-each` mappings generate a loop/`@Mapping(ignore=true)` scaffold; per-item field mapping
   for a repeating element still needs to be filled in by hand.

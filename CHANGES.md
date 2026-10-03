@@ -1,3 +1,169 @@
+# Changes — round 19: mapping sheet export fixed
+
+- **Export mapping sheet** produced only the header line. It still read the old drag-and-drop input lists,
+  which formula mappings don't use. It now exports the mapping as the target tree shows it, one row per
+  mapped field, statement and variable:
+  `Target Path, Target Field, Kind, Mapping / Formula, Source Fields, Inside, Mandatory, Data Type`
+  - Kind: Value, Copy-Of, Copy-Of (from parent), For-Each, For-Each-Group, Choice, When, Otherwise, If,
+    Variable (type), Global variable (type).
+  - Source Fields: the source paths the row really reads (`$s1/Document/…`), from the resolved links.
+  - Inside: the statements around the row, e.g. `[For-Each $s1/…/PmtInf] › [When PmtMtd = 'TRF']`.
+  - Also exported: the root condition (first row), For-Each-Group's `group by` key, fixed-width positions
+    in Data Type (`string (1–10)`), and a note on mappings under a choice alternative that isn't selected.
+  - Checked with every format: XSD (with attributes, Copy-Of children, nested For-Each, If, collapsed tree),
+    JSON, CSV, fixed width, SWIFT MT and POJO sources and targets, and two sources.
+  - Proper CSV quoting (formulas keep their commas), UTF-8 with BOM for Excel, and the file is named after
+    the session (`<session>-mappings.csv`).
+
+---
+
+# Changes — round 18: fixed width; Swagger removed
+
+- New format **Fixed width (layout definition)** for sources and targets. Upload or paste the definition:
+  ```
+  Field       Start   Length   Type
+  -----------------------------------
+  AccountNo   1       10       String
+  Name        11      15       String
+  Amount      26      11       Decimal
+  Currency    37      3        String
+  ```
+  - Columns can be separated by spaces, tabs, `|`, `,` or `;`, so an Excel definition works too (the
+    workbook is converted and stays Fixed width). The header line is optional; `End` may replace `Length`,
+    and a `Mandatory` / `Required` (Y/N) column sets (M). Field names may contain spaces, and 0-based starts
+    are detected.
+  - Types: String / Char / X / Date → text; Decimal / Number / Amount → number; Integer / Int / N → integer;
+    Boolean.
+  - Clear errors for non-numeric starts or lengths. Overlapping fields are reported in the parse note,
+    together with the record length.
+  - Each field shows its position as `start+length` (e.g. `26+11`) in the source and target trees.
+- **As a source**: Test / Run cuts each field from the first data line of the sample and trims it; numbers
+  lose their leading zeros (`00000150.50` → `150.50`).
+- **As a target**: the result is one positional record. Text is left-aligned and padded with spaces; numbers
+  are right-aligned and padded with zeros (`-` stays in front). Empty fields are spaces, values that are
+  too long are cut, and gaps are spaces. The same **Output: Fixed width | XML** switch as for SWIFT (XML is
+  `<Record>…</Record>`). The generated XSLT writes the record itself (text output), identical to the processor
+  in XSLT 1.0 and 2.0.
+- **Swagger / OpenAPI removed** from the format lists (and from auto-detection). Sessions saved with it open
+  as JSON Schema.
+
+---
+
+# Changes — round 17: CSV header row
+
+- When the format is **CSV** (source or target), the loader shows a **Header row** setting:
+  - **Auto-detect** (default): finds the first line with as many columns as the table, so title or
+    comment lines above it are skipped; it shows "→ row n";
+  - **Row number**: the line that holds the column names (1 = first line; blank lines count, as in an editor);
+  - **No header row**: columns are named column1, column2 …
+- Below the setting is a numbered preview of the first 12 lines. Click a line to make it the header:
+  it is highlighted, lines above it are struck through, and lines below are data.
+- When the fields are already loaded (✎ Edit input), changing the header row re-parses straight away.
+- The delimiter (, ; tab |) is now detected by the most consistent column count, so title lines no
+  longer confuse it. Duplicate column names get suffixes (`amount`, `amount_2`).
+- **Excel workbooks** (`.xlsx` / `.xls`) uploaded as a source or target are converted to CSV text, and the
+  format switches to CSV. A **Sheet** selector appears when the workbook has more than one sheet. Before,
+  the file was read as text and showed up as binary garbage. Other binary files are rejected with a clear message.
+- Test / Run reads the CSV sample with the same header row (the first data row below it). The setting
+  is saved with the session.
+
+---
+
+# Changes — round 16: SWIFT MT output
+
+- When the target is a SWIFT MT message, the result is written as an **MT message** by default:
+  `{1:…}{2:…}{3:{121:…}}{4:` + `:tag:value` lines + `-}{5:…}`. A switch **Output: SWIFT MT | XML** under the
+  Target header (and in Test / Run) changes it to XML; the choice is saved with the session.
+- The generated XSLT produces the MT text itself (`xsl:output method="text"`): it builds the message, then
+  writes it with templates in mode `mt` (XSLT 1.0 uses `exsl:node-set`). So the XSLT tab, Test / Run and the
+  downloaded project all give the same MT message. The processor engine writes it identically.
+- XML output is wrapped in `<SwiftMessage type="MT103">`, so it is well-formed (before, the five blocks were
+  five separate root elements).
+- Fields: a mapped `Value` is written as is; otherwise the field is built from its components using the
+  field format. Examples: `/` before an account, the account and the BIC on separate lines (option A/D),
+  name and address lines, a decimal comma in amounts (`150.50` → `150,50`, `250` → `250,`), and field 61's
+  `//` reference with supplementary details on the next line. Empty fields are left out.
+- Headers: block 1 defaults to `F01` + LT address + `0000000000`; block 2 is written in the input (`I`) or
+  output (`O`) layout, with the message type from the target (MT202 COV adds `{119:COV}`). Blocks 3 and 5
+  are written only when they have tags.
+- Tested round trip: MT103, MT101 and MT940 copied through a SWIFT → SWIFT mapping come back
+  unchanged.
+
+---
+
+# Changes — round 15: Clear mapping at any level
+
+- Right-click any target row › **Clear mapping**, always after a confirmation that says how many mappings,
+  statements and variables will be removed:
+  - a field: its own mapping;
+  - a parent (or its For-Each / If / Choice row): the parent and every child below it, including the
+    statements and local variables inside it and the mappings in its [When] / [Otherwise] branches;
+  - a [When] / [Otherwise] row: the mappings inside that branch (the branch is kept);
+  - the root element: **Clear all mappings** (every mapping, statement and global variable);
+  - the Variables header: **Clear all variables**.
+- Only mappings are removed; target fields are never deleted. "Delete statement / [When] / variable"
+  remains a separate menu item.
+
+---
+
+# Changes — round 14: typed variables in the target tree
+
+- **Global variables** sit at the top of the target tree under *Variables (n)* (toolbar **＄ Variable**,
+  header **+ add**, or right-click › *Add global variable*). In XSLT they become top-level `xsl:variable`s.
+- **Local variables**: right-click any target row › *Add variable here (before this element)*. The
+  `$name - [Variable]` row is placed before that element, in the same scope: inside a For-Each, a
+  When / Otherwise or an If. It is evaluated once for each item or branch, e.g. `$pos := position()`.
+- Types: **string, integer, decimal, boolean, date, dateTime, node** (a badge on the row). In XSLT 2.0 the
+  type becomes `as="xs:…"`. The processor engine casts the value the same way.
+- **node** variables hold source nodes (`$payments := $s1/Document/CstmrCdtTrfInitn/PmtInf`). You can
+  use them in `count($payments)`, in paths (`$payments/PmtInfId`) and as the select of a For-Each.
+- In the Mapping Builder, a variable row shows its **Name** and **Type**. Renaming a variable updates every
+  `$ref` to it in all formulas.
+- `if(...)` / `when` can now be used inside other functions (e.g. inside `concat`), in XSLT 1.0 and 2.0.
+- Problems are flagged red: invalid or duplicate names, names that clash with a source id, and empty
+  formulas.
+
+---
+
+# Changes — round 13: SWIFT MT
+
+- ✎ Edit input (each source and the target): reopens the current schema / payload — pasted or uploaded —
+  as editable text with ↻ Re-parse and Cancel. Mappings are kept.
+- SWIFT MT parsing uses **swift-parser-py** (MIT, vendored in `backend/app/vendor/swift_parser_py`
+  because its PyPI release depends on the obsolete `typing` backport, which breaks Python 3).
+- The source tree shows **every field of the message type in all five blocks**: block 1 basic header,
+  block 2 application header (input and output), block 3 user header tags (103, 108, 111, 113, 115,
+  119, 121 UETR, 165, 423, 424, 433, 434, 106), block 4 text and block 5 trailers (CHK, TNG, PDE, PDM,
+  DLM, MRF, SYS, MAC, PAC).
+- Field catalogue for MT101, MT103, MT199, MT202, MT202 COV, MT299, MT900, MT910, MT940, MT950: every
+  field and option, mandatory / optional, repeating, and sequences (MT101 sequence B, MT202 COV
+  sequence B, MT940 statement lines). Other MTs show the fields present in the message. Pasting just
+  "MT103" gives the full field list without a sample.
+- Options form a choice (50A / 50F / 50K, 52A / 52D, 59 / 59A / 59F …): ○/◉ in the source tree; the
+  option the message contains is pre-selected, the others are struck through and folded (still mappable).
+- Composite fields are split into components (32A -> Date / Currency / Amount, 50F -> Party_Identifier +
+  Name_And_Address lines …) with `Value` holding the whole raw field; amounts use a decimal point
+  (`1234,56` -> `1234.56`) so they can be summed and mapped to decimal targets.
+
+---
+
+# Changes — round 12: input formats
+
+- Format auto-detection: parsing a JSON sample as "JSON Schema" (or an XML instance as "XSD", or SWIFT
+  pasted under the wrong format, …) no longer fails — the content is detected, parsed as the right
+  format, the selector switches to it and a note says so.
+- New **XML sample** format: elements, @attributes, repeated elements as arrays (structure merged over
+  all occurrences), typed values, root namespace — works as source and target, XSLT 1.0 / 2.0 included.
+- JSON sample: top-level arrays, keys merged across all array items, arrays of values marked repeating;
+  JSON / YAML accepted for samples, JSON Schema and Swagger / OpenAPI.
+- SWIFT MT: block 1/2 headers (Sender_BIC, Message_Type, Receiver_BIC), multi-line values (50K / 59
+  name and address), repeated tags as repeating fields; Test / Run reads samples the same way.
+- Java: fields with initialisers, annotations (@NotNull -> mandatory), nested and sibling classes as
+  objects, List / Set / arrays as repeating elements with their item fields, records; statics skipped.
+- CSV: delimiter detected (, ; tab |), quoted values, headers turned into usable field names.
+
+---
+
 # Changes — round 11: renamed to MapSheet AI
 
 - Red markers always match Validate: the background check now re-runs on every relevant change

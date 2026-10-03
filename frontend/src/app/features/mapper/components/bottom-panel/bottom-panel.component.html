@@ -48,7 +48,15 @@
           <button [class.active]="!workspace.isXslt2()" (click)="workspace.setXsltVersion('1.0')">1.0</button>
           <button [class.active]="workspace.isXslt2()" (click)="workspace.setXsltVersion('2.0')">2.0</button>
         </div>
-        <div *ngIf="engine === 'processor'" style="display: flex; align-items: center; gap: 10px; font-size: 11.5px;">
+        <div *ngIf="workspace.isTextTarget()" style="display: flex; align-items: center; gap: 6px; font-size: 11.5px;"
+             title="Write the result as {{ workspace.textOutputLabel() }} text or as XML">
+          <span style="color: var(--ink-soft);">Output:</span>
+          <div class="tabbtns">
+            <button [class.active]="workspace.textOutput()" (click)="workspace.setTextOutput(true)">{{ workspace.textOutputLabel() }}</button>
+            <button [class.active]="!workspace.textOutput()" (click)="workspace.setTextOutput(false)">XML</button>
+          </div>
+        </div>
+        <div *ngIf="engine === 'processor' && !workspace.isTextTarget()" style="display: flex; align-items: center; gap: 10px; font-size: 11.5px;">
           <span style="color: var(--ink-soft);">Output:</span>
           <label style="display: flex; align-items: center; gap: 4px;">
             <input type="radio" name="testFmt" value="xml" [(ngModel)]="testFormat" style="width: auto;"> XML

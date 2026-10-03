@@ -94,7 +94,7 @@ def download_project(ws: MappingWorkspace) -> StreamingResponse:
                     codegen.generate_application_java(ws.project.package, ws.project.artifact))
 
         for i, s in enumerate(ws.sources):
-            if s.type == "xsd":
+            if s.type in ("xsd", "xml"):
                 xsd_pkg = f"{ws.project.package}.model.xsd{i + 1}"
                 files = codegen.xsd_tree_to_java_classes(s.fields, codegen.source_class_name(i), xsd_pkg)
                 for fname, content in files.items():
@@ -104,7 +104,7 @@ def download_project(ws: MappingWorkspace) -> StreamingResponse:
                             codegen.generate_model_class(codegen.source_class_name(i), s.fields,
                                                           ws.project.package, ws.project.dep_lombok))
 
-        if ws.target.type == "xsd":
+        if ws.target.type in ("xsd", "xml"):
             xsd_pkg = f"{ws.project.package}.model.xsdtarget"
             files = codegen.xsd_tree_to_java_classes(ws.target.fields, "TargetModel", xsd_pkg)
             for fname, content in files.items():

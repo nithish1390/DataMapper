@@ -167,7 +167,7 @@ def _mapstruct_source_expr(inp, sources, for_java: bool) -> str:
     idx = next((i for i, s in enumerate(sources) if s.id == inp.source_id), -1)
     src = sources[idx] if idx >= 0 else None
     var_name = source_var_name(idx if idx >= 0 else 0)
-    if src and src.type == "xsd":
+    if src and src.type in ("xsd", "xml"):
         segs = [strip_array_suffix(s) for s in inp.path.split(".")]
         if _is_simple_content(_find_node(src.fields, inp.path)):
             segs.append("value")
@@ -195,7 +195,7 @@ def _flatten_nodes(nodes: list[FieldNode]) -> list[FieldNode]:
 def generate_mapstruct_mapper(ws: MappingWorkspace) -> tuple[str, set[str]]:
     """Returns (java source, custom function names used)."""
     pkg = ws.project.package
-    target_is_xsd = ws.target.type == "xsd"
+    target_is_xsd = ws.target.type in ("xsd", "xml")
 
     def tpath(target: str, is_xsd: bool) -> str:
         base = _mapstruct_target_path(target, is_xsd)
@@ -368,7 +368,7 @@ def generate_mapstruct_mapper(ws: MappingWorkspace) -> tuple[str, set[str]]:
 
     model_imports = {f"{pkg}.model.*"}
     for i, s in enumerate(ws.sources):
-        if s.type == "xsd":
+        if s.type in ("xsd", "xml"):
             model_imports.add(f"{pkg}.model.xsd{i + 1}.*")
     if target_is_xsd:
         model_imports.add(f"{pkg}.model.xsdtarget.*")
@@ -402,7 +402,7 @@ def generate_mapstruct_mapper(ws: MappingWorkspace) -> tuple[str, set[str]]:
 
 def generate_camel_processor_wrapper(ws: MappingWorkspace) -> str:
     pkg = ws.project.package
-    target_import = f"{pkg}.model.xsdtarget.TargetModel" if ws.target.type == "xsd" else f"{pkg}.model.TargetModel"
+    target_import = f"{pkg}.model.xsdtarget.TargetModel" if ws.target.type in ("xsd", "xml") else f"{pkg}.model.TargetModel"
     args = ", ".join(f"req.get{source_class_name(i)}()" for i in range(len(ws.sources)))
     return (
         f"package {pkg}.mapper;\n\n"
@@ -457,7 +457,7 @@ def generate_pom(ws: MappingWorkspace) -> str:
     if p.dep_camel:
         deps.append('    <dependency>\n      <groupId>org.apache.camel.springboot</groupId>\n'
                      '      <artifactId>camel-spring-boot-starter</artifactId>\n      <version>4.6.0</version>\n    </dependency>')
-    any_xsd = any(s.type == "xsd" for s in ws.sources) or ws.target.type == "xsd"
+    any_xsd = any(s.type in ("xsd", "xml") for s in ws.sources) or ws.target.type in ("xsd", "xml")
     if any_xsd:
         deps.append('    <dependency>\n      <groupId>jakarta.xml.bind</groupId>\n'
                      '      <artifactId>jakarta.xml.bind-api</artifactId>\n      <version>4.0.2</version>\n    </dependency>\n'
@@ -533,7 +533,7 @@ def generate_mapping_request(ws: MappingWorkspace) -> str:
         fields.append(f"    private {cls} {var};\n\n"
                        f"    public {cls} get{cls}() {{ return {var}; }}\n"
                        f"    public void set{cls}({cls} v) {{ this.{var} = v; }}")
-        if s.type == "xsd":
+        if s.type in ("xsd", "xml"):
             imports.append(f"import {pkg}.model.xsd{i + 1}.{cls};")
     import_block = ("\n" + "\n".join(imports) + "\n") if imports else ""
     return (f"package {pkg}.model;\n{import_block}\n"
@@ -544,7 +544,7 @@ def generate_mapping_request(ws: MappingWorkspace) -> str:
 
 def generate_controller(ws: MappingWorkspace) -> str:
     pkg = ws.project.package
-    target_import = f"{pkg}.model.xsdtarget.TargetModel" if ws.target.type == "xsd" else f"{pkg}.model.TargetModel"
+    target_import = f"{pkg}.model.xsdtarget.TargetModel" if ws.target.type in ("xsd", "xml") else f"{pkg}.model.TargetModel"
     args = ", ".join(f"req.get{source_class_name(i)}()" for i in range(len(ws.sources)))
     return (f"package {pkg}.controller;\n\n"
             f"import {pkg}.mapper.FieldMapperProcessor;\n"

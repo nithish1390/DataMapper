@@ -1,7 +1,7 @@
 # MapSheet AI — Project Guide
 
 **MapSheet AI** is a browser-based, visual **data-mapping workbench**. You load a source schema and a target schema
-(XSD, JSON, CSV, Swagger, SWIFT MT, Java POJO), map fields by drag and drop or with XPath-style
+(XSD, XML sample, JSON Schema, JSON sample, CSV / Excel, fixed width, SWIFT MT, Java class / record), map fields by drag and drop or with XPath-style
 formulas, add logic (loops, grouping, conditions, copy), test the result on real sample data,
 validate it against the target XSD, and download a ready-to-run Spring Boot project
 (MapStruct mapper + XSLT). Mapping sheets (Excel / CSV) can be imported, and an AI assistant
@@ -47,7 +47,9 @@ Open http://localhost:4200.
 
 ## 2. A typical session
 
-1. **Source** (left): choose the format, upload or paste the schema, *Parse fields*.
+1. **Source** (left): choose the format, upload or paste the schema or a sample, *Parse fields*.
+   If the content is clearly another format (e.g. a JSON sample under JSON Schema, an XML instance
+   under XSD), it is detected, parsed as that format, and the format selector switches to it.
    The source id (`$s1`) is how formulas refer to it. Add more sources with *+ Add source*.
 2. **Target** (right): choose the format, upload or paste, *Parse fields*.
 3. **Map**:
@@ -83,7 +85,17 @@ Open http://localhost:4200.
 - **Copy-Of follows the target schema** — same-named children copied, renamed ones matched by
   prefix, source-only elements reported, any sub-field overridable.
 - **XML attributes** (`@Ccy`) and **xs:choice** (pick the alternative with ○/◉).
-- **Variables**, a **root condition**, and **custom functions** (upload `.jar` or `.java`;
+- **SWIFT MT**: all five blocks and every field of the message type (MT101/103/199/202/202COV/299/
+  900/910/940/950 catalogued), options as choices (50A / 50F / 50K), components (32A → Date /
+  Currency / Amount) — paste a message, or just `MT103` for the field list.
+- **Fixed width**: upload or paste a layout definition (Field / Start / Length / Type, as text, CSV or
+  Excel); fields show their positions. As a source, values are cut from the sample line. As a target,
+  the result is a padded record (text left-aligned, numbers zero-padded); you can choose XML output instead.
+- **Typed variables** in the target tree: global (top of the tree) or local, placed before any element
+  and so also inside For-Each / When / If. Types are string, integer, decimal, boolean, date, dateTime
+  and node. Use one in a formula as `$name`. A node variable can be counted, used as the base of a path
+  or used as the select of a For-Each.
+- A **root condition**, and **custom functions** (upload `.jar` or `.java`;
   grouped by your own names; `.java` sources ship in the downloaded project).
 
 ### XSLT 1.0 / 2.0
@@ -132,7 +144,8 @@ datamapper/
 │       ├── routers/              parse · codegen (preview, links/analysis, validate, project zip)
 │       │                         · test-run · chat · sheet · functions · jar
 │       └── services/
-│           ├── parsers.py        XSD (attributes, choices, simple types) / JSON / CSV / Swagger / SWIFT / POJO → tree
+│           ├── parsers.py        XSD (attributes, choices, simple types) / JSON / CSV / fixed width / SWIFT / POJO → tree
+│           ├── fixed_width.py    fixed-width layout definitions, record reader / writer (+ XSLT)
 │           ├── transform_dsl.py  formula language: parser, evaluator, → XPath 1.0/2.0, → Java
 │           ├── structure.py      shared model: statements, branch scopes, for-each context, copy pairing
 │           ├── xslt_gen.py       XSLT 1.0 / 2.0 generation

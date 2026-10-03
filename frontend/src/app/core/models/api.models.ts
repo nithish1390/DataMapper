@@ -1,4 +1,4 @@
-export type SourceFormat = 'jsonschema' | 'jsonobject' | 'xsd' | 'csv' | 'swagger' | 'swift' | 'pojo';
+export type SourceFormat = 'jsonschema' | 'jsonobject' | 'xsd' | 'xml' | 'csv' | 'fixed' | 'swift' | 'pojo';
 export type FieldType = 'string' | 'integer' | 'number' | 'boolean' | 'object' | 'array';
 
 export interface FieldNode {
@@ -9,6 +9,9 @@ export interface FieldNode {
   children: FieldNode[];
   /** xs:choice group id when this element is one alternative of a choice. */
   choice?: string | null;
+  /** Fixed width: 1-based start position and length. */
+  start?: number | null;
+  length?: number | null;
 }
 
 export interface SourceRef {
@@ -35,9 +38,11 @@ export interface VariableRule {
   name: string;
   inputs: SourceRef[];
   transform: string;
+  var_type?: VarType;
 }
 
-export type StatementKind = 'for-each' | 'for-each-group' | 'if' | 'choose';
+export type StatementKind = 'for-each' | 'for-each-group' | 'if' | 'choose' | 'variable';
+export type VarType = 'string' | 'integer' | 'number' | 'boolean' | 'date' | 'dateTime' | 'node';
 
 export interface ChooseBranch {
   id: string;
@@ -56,6 +61,9 @@ export interface Statement {
   select: string;
   /** for-each-group (XSLT 2.0): the grouping key, evaluated per item. */
   group_by?: string;
+  /** variable: name ($name) and data type. */
+  name?: string;
+  var_type?: VarType;
   test: string;
   whens: ChooseBranch[];
   /** choose only: null = no otherwise branch, '' = field mapping, else an expression. */
@@ -80,6 +88,10 @@ export interface SourceSpec {
   type: SourceFormat;
   fields: FieldNode[];
   namespace?: string | null;
+  /** choice group -> alternative the user picked (e.g. SWIFT 50F out of 50A / 50F / 50K). */
+  choice_selections?: Record<string, string>;
+  /** CSV: line of the column names (0 = no header row, null = auto-detect). */
+  csv_header_row?: number | null;
 }
 
 export interface TargetSpec {
@@ -89,6 +101,11 @@ export interface TargetSpec {
   mandatory_overrides: Record<string, boolean>;
   /** xs:choice group id -> path of the alternative the user picked. */
   choice_selections?: Record<string, string>;
+  /** SWIFT MT targets: MT text (default) or XML. */
+  /** SWIFT MT / fixed-width targets: as text (default) or as XML. */
+  output_format?: 'swift' | 'fixed' | 'xml' | null;
+  /** CSV: line of the column names (0 = no header row, null = auto-detect). */
+  csv_header_row?: number | null;
 }
 
 export interface ProjectSettings {
@@ -155,6 +172,13 @@ export interface ParseResponse {
   schema_name?: string | null;
   field_count: number;
   namespace?: string | null;
+  /** Format actually used — the content may have been detected as another format. */
+  format?: SourceFormat;
+  note?: string | null;
+  /** choice group -> alternative present in the parsed message (pre-selected). */
+  choice_defaults?: Record<string, string>;
+  /** CSV: the header line the parse used (detected or as given). */
+  csv_header_row?: number | null;
 }
 
 export interface CodegenResponse {

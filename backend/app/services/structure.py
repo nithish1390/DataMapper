@@ -114,6 +114,17 @@ class Structure:
                     stmts.insert(0, Statement(id=f"legacy-{m.id}", kind="for-each", inputs=[m.inputs[0]]))
         self.mandatory = ws.target.mandatory_overrides
         self.choice_sel = ws.target.choice_selections
+        # every variable name ($name): global ones and the ones declared in the target tree
+        self.var_names: set[str] = {v.name for v in ws.variables} | {
+            st.name for sts in self.structs.values() for st in sts if st.kind == "variable" and st.name}
+        # node variables that hold an absolute source path: usable as a for-each select / path base
+        self.var_paths: dict[str, tuple[str, list[str]]] = {}
+        decls = [(v.name, v.var_type, v.transform) for v in ws.variables] + [
+            (st.name, st.var_type, st.select) for sts in self.structs.values() for st in sts if st.kind == "variable"]
+        for name, vtype, text in decls:
+            node = parse_expr(text) if vtype == "node" and text else None
+            if node is not None and node.type == "ref" and node.absolute and node.source_id in self.source_ids:
+                self.var_paths[name] = self.resolve_abs(node, [])
         self._content: set[str] = set()
         for path, _ in list(self.maps) + list(self.structs):
             parts = path.split(".")
@@ -176,9 +187,11 @@ class Structure:
     def resolve_abs(self, ref: ExprNode, ctx: list[LoopCtx]) -> tuple[str, list[str]]:
         """Absolute (source_id, name segments) a path reference points at
         (current-group()/X resolves like a path relative to the grouped items)."""
-        if ref.absolute:
+        if ref.absolute and ref.source_id not in self.source_ids and ref.source_id in getattr(self, "var_paths", {}):
+            sid, base = self.var_paths[ref.source_id][0], list(self.var_paths[ref.source_id][1])  # $payments/X
+        elif ref.absolute:
             sid = ref.source_id if ref.source_id in self.source_ids else self.first_source()
-            base: list[str] = []
+            base = []
         elif ctx:
             sid, base = ctx[-1].source_id, segments(ctx[-1].path)
         else:
@@ -200,6 +213,9 @@ class Structure:
             return None
         if node.type == "placeholder" and st.inputs:
             return LoopCtx(st.inputs[0].source_id, ".".join(segments(st.inputs[0].path)))
+        if node.type == "var" and node.name in self.var_paths:  # for-each over a node variable
+            sid, segs = self.var_paths[node.name]
+            return LoopCtx(sid, ".".join(segs))
         refs = collect_refs(node)
         if not refs:
             return None

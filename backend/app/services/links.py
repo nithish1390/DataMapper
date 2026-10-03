@@ -11,6 +11,8 @@ Row keys (the UI builds the same strings):
 """
 from __future__ import annotations
 
+import re
+
 from app.models.schemas import FieldNode, MappingLink, MappingWorkspace, RowProblem, SourceRef, Statement
 from app.services.structure import LoopCtx, Structure, bare_name, branch_key, copy_pairs, otherwise_key
 from app.services.transform_dsl import ExprNode, collect_refs, needs_xpath2, parse_expr, walk
@@ -42,6 +44,9 @@ class _Links:
             self.problem(row_key, target, f"{{{bad_ph[0]}}} has no source input")
         refs: list[tuple[str, str]] = []
         for r in collect_refs(expr):
+            if r.absolute and r.source_id not in self.s.source_ids and r.source_id in self.s.var_names \
+                    and r.source_id not in self.s.var_paths:
+                continue  # a path into a node variable whose source path isn't known statically
             sid, segs = self.s.resolve_abs(r, ctx)
             if r.steps and not segs:
                 self.problem(row_key, target, f"'{'/'.join(r.steps)}' points above the document root")
@@ -119,6 +124,18 @@ class _Links:
             self.nodes(n.children, ctx, scopes)
             return
         st, rest = stmts[0], stmts[1:]
+        if st.kind == "variable":
+            key = f"s|{st.id}"
+            if not re.fullmatch(r"[A-Za-z_][\w.-]*", st.name or ""):
+                self.problem(key, n.path, "Variable needs a valid name (letters, digits, _ ; not starting with a digit)")
+            elif st.name in self.s.source_ids:
+                self.problem(key, n.path, f"Variable name '{st.name}' clashes with the source id ${st.name}")
+            if not st.select.strip():
+                self.problem(key, n.path, f"Variable ${st.name or '?'} has no formula")
+            else:
+                self.add_expr(parse_expr(st.select), st.inputs, ctx, n.path, scope, key, "value-of")
+            self.wrap(n, rest, ctx, scopes)
+            return
         if st.kind == "for-each-group":
             sel = self.s.select_expr(st)
             if sel is not None:
@@ -172,5 +189,20 @@ def analyse(ws: MappingWorkspace) -> tuple[list[MappingLink], list[RowProblem]]:
 
 def walk_mapping(ws: MappingWorkspace) -> "_Links":
     w = _Links(ws)
+    names: dict[str, int] = {}
+    for v in ws.variables:  # global variables: rows "v|<id>" at the top of the target tree
+        key = f"v|{v.id}"
+        names[v.name] = names.get(v.name, 0) + 1
+        if not re.fullmatch(r"[A-Za-z_][\w.-]*", v.name or ""):
+            w.problem(key, "", "Variable needs a valid name (letters, digits, _ ; not starting with a digit)")
+        elif v.name in w.s.source_ids:
+            w.problem(key, "", f"Variable name '{v.name}' clashes with the source id ${v.name}")
+        if v.transform.strip() or v.inputs:
+            w.add_expr(parse_expr(v.transform or "{0}"), v.inputs, [], "", "", key, "value-of")
+    for name, count in names.items():
+        if count > 1:
+            for v in ws.variables:
+                if v.name == name:
+                    w.problem(f"v|{v.id}", "", f"Variable name ${name} is used {count} times")
     w.nodes(ws.target.fields, [], [])
     return w

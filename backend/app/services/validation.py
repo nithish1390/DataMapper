@@ -222,7 +222,7 @@ def _sample_has(formula: str, ws, sample: str):
         return None
     try:
         first = ws.sources[0]
-        ev = Evaluator(ws, {first.id: _load_source(first.type, sample)})
+        ev = Evaluator(ws, {first.id: _load_source(first.type, sample, first.csv_header_row, first.fields)})
         locs = ev.locate_ref(node, [])
     except Exception:  # noqa: BLE001
         return None

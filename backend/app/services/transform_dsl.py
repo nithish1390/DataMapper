@@ -349,6 +349,10 @@ class EvalEnv:
     def grouping_key(self) -> Any:
         return None
 
+    def var_nodes(self, name: str) -> Optional[list[Any]]:
+        """Nodes held by a node-typed variable (None for value variables)."""
+        return None
+
 
 def _truthy(v: Any) -> bool:
     if isinstance(v, str):
@@ -399,6 +403,10 @@ def eval_expr(node: ExprNode, input_values: list[Any], var_values: dict[str, Any
     def nodes_of(n: ExprNode) -> list[Any]:
         if n.type == "ref":
             return env.ref_nodes(n)
+        if n.type == "var":
+            held = env.var_nodes(n.name)
+            if held is not None:
+                return held
         if n.type == "placeholder":
             v = input_values[n.index] if n.index < len(input_values) else None
             return [] if v is None else [v]
@@ -780,8 +788,8 @@ def expr_to_xpath(node: ExprNode, args_xpath: list[str],
         return {"cond": node}
     f = node.func
     a = [x(n, not (f in _SEQ_FUNCS and i == 0)) for i, n in enumerate(node.args)]
-    if any(isinstance(v, dict) for v in a):
-        return "'/* unsupported: IF/WHEN nested inside another function */'"
+    # IF / WHEN used inside another function: inline conditional
+    a = [_inline_if(v["cond"], x, v2) if isinstance(v, dict) else v for v in a]
     a0 = a[0] if a else "''"
     if f in ("COPY", "IDENTITY"):
         return a0
@@ -857,6 +865,38 @@ def expr_to_xpath(node: ExprNode, args_xpath: list[str],
     if ":" in node.func_raw:  # prefixed extension function: pass through as written
         return f"{node.func_raw}({', '.join(a)})"
     return a0
+
+
+def _inline_if(node: ExprNode, x: Callable, v2: bool) -> str:
+    """IF / WHEN as an expression (when it sits inside another function).
+    XSLT 2.0: (if (c) then a else b). XSLT 1.0 has no conditional expression; the usual
+    concat(substring(a, 1 div c), substring(b, 1 div not(c))) idiom picks the string."""
+    args = list(node.args)
+    if node.func == "IF":
+        pairs, other = [(args[0], args[1] if len(args) > 1 else None)], args[2] if len(args) > 2 else None
+    else:
+        n = len(args)
+        pairs = [(args[i], args[i + 1]) for i in range(0, n - (1 if n % 2 else 0), 2)]
+        other = args[-1] if n % 2 else None
+
+    def val(e) -> str:
+        out = x(e) if e is not None else "''"
+        return _inline_if(out["cond"], x, v2) if isinstance(out, dict) else out
+
+    def cond(e) -> str:
+        out = x(e)
+        return _inline_if(out["cond"], x, v2) if isinstance(out, dict) else out
+
+    if v2:
+        expr = val(other)
+        for c, v in reversed(pairs):
+            expr = f"(if ({cond(c)}) then {val(v)} else {expr})"
+        return expr
+    expr = val(other)
+    for c, v in reversed(pairs):
+        cc = cond(c)
+        expr = f"concat(substring({val(v)}, 1 div boolean({cc})), substring({expr}, 1 div not({cc})))"
+    return expr
 
 
 def check_formula(text: str) -> Optional[str]:

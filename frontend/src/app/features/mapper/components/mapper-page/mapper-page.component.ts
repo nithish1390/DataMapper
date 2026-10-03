@@ -1,3 +1,4 @@
+import { mappingSheet, toCsvText } from '../../../../core/services/mapping-export';
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, HostListener, OnInit, ViewChild, effect, signal } from '@angular/core';
 import { SourcePanelComponent } from '../source-panel/source-panel.component';
@@ -136,26 +137,26 @@ export class MapperPageComponent implements OnInit {
     this.validation.run();
   }
 
+  /** Exports the mapping as it appears in the target tree: one row per mapped field, statement
+   * (For-Each, Choice / When / Otherwise, If) and variable, with its formula, the source fields it
+   * reads and the statements it sits in. */
   exportSheet(): void {
-    const mappings = this.workspace.mappings();
-    if (!mappings.length) {
+    const ws = this.workspace;
+    const out = mappingSheet(ws);
+    if (out.length === 1) {
       this.toast.show('No mappings to export yet.', true);
       return;
     }
-    const lines = ['source,sourcePath,targetPath,transform'];
-    mappings.forEach((m) =>
-      m.inputs.forEach((inp) =>
-        lines.push([this.workspace.sourceLabel(inp.source_id), inp.path, m.target, (m.transform || '').replace(/,/g, ';')].join(',')),
-      ),
-    );
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const csv = toCsvText(out);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'current-mappings.csv';
+    const base = ws.sessionName().trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'current';
+    a.download = `${base}-mappings.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    this.toast.show('Mapping sheet exported.');
+    this.toast.show(`Mapping sheet exported: ${out.length - 1} row(s).`);
   }
 
   downloadProject(): void {

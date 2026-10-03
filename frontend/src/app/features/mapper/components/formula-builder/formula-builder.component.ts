@@ -9,7 +9,7 @@ import { ConfirmService } from '../../../../shared/components/confirm-dialog/con
 import { CustomFunctionsService } from '../custom-functions-modal/custom-functions-modal.component';
 import { SessionService } from '../../../../core/services/session.service';
 import { ToastService } from '../../../../core/services/toast.service';
-import { StatementKind } from '../../../../core/models/api.models';
+import { StatementKind, VarType } from '../../../../core/models/api.models';
 
 type Tab = 'functions' | 'variables' | 'constants';
 
@@ -193,7 +193,7 @@ export class FormulaBuilderComponent {
       this.workspace.mappings();
       this.workspace.structures();
       clearTimeout(this.snippetTimer);
-      if (!r || !this.workspace.target().ready) {
+      if (!r || !this.workspace.target().ready || r.kind === 'variable' || r.kind === 'var-header') {
         this.snippet.set('');
         return;
       }
@@ -228,6 +228,7 @@ export class FormulaBuilderComponent {
       element: r.node.children.length ? 'Element' : 'Field', 'for-each': 'For-Each — select',
       'for-each-group': 'For-Each-Group — select', if: 'If — test',
       choose: 'Choice', when: 'When — test', otherwise: 'Otherwise',
+      'var-header': 'Variables', variable: 'Variable (global)', 'local-variable': 'Variable (local)',
     }[r.kind];
   }
 
@@ -301,7 +302,36 @@ export class FormulaBuilderComponent {
   }
 
   editable(r: TreeRow): boolean {
-    return r.kind !== 'choose' && r.kind !== 'otherwise';
+    return r.kind !== 'choose' && r.kind !== 'otherwise' && r.kind !== 'var-header';
+  }
+
+  readonly varTypes: { id: VarType; label: string }[] = [
+    { id: 'string', label: 'string (text)' }, { id: 'integer', label: 'integer' }, { id: 'number', label: 'decimal' },
+    { id: 'boolean', label: 'boolean' }, { id: 'date', label: 'date' }, { id: 'dateTime', label: 'dateTime' },
+    { id: 'node', label: 'node (element / list of elements)' },
+  ];
+
+  isVar(r: TreeRow): boolean {
+    return r.kind === 'variable' || r.kind === 'local-variable';
+  }
+
+  varName(r: TreeRow): string {
+    return (r.kind === 'variable' ? r.variable?.name : r.stmt?.name) ?? '';
+  }
+
+  varType(r: TreeRow): VarType {
+    return ((r.kind === 'variable' ? r.variable?.var_type : r.stmt?.var_type) ?? 'string') as VarType;
+  }
+
+  renameVar(r: TreeRow, input: HTMLInputElement): void {
+    const name = input.value.trim();
+    if (!this.workspace.renameVariable(r, name)) {
+      this.toast.show(`"${name}" can't be used: letters, digits, _ (not starting with a digit), not already used, not a source id.`, true);
+      input.value = this.varName(r);
+      return;
+    }
+    const row = this.workspace.rows().find((x) => x.key === r.key);
+    if (row) this.workspace.selectRow(row);
   }
 
   /** Typing edits the draft only; Apply (Ctrl/⌘+Enter) writes it to the row. */
@@ -368,7 +398,7 @@ export class FormulaBuilderComponent {
         this.check.set(null);
         return;
       }
-      this.api.checkFormula(this.workspace.toWorkspace(), text, r.node.path, r.kind === 'for-each' || r.kind === 'for-each-group').subscribe({
+      this.api.checkFormula(this.workspace.toWorkspace(), text, r.kind === 'variable' ? '' : r.node.path, r.kind === 'for-each' || r.kind === 'for-each-group').subscribe({
         next: (c) => this.check.set(c),
         error: () => undefined,
       });

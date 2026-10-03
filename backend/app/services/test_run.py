@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from xml.sax.saxutils import escape, quoteattr
 
+from app.services import fixed_width, swift_mt
 from app.models.schemas import FieldNode, MappingWorkspace, SourceRef, Statement
-from app.services.parsers import swift_field_name
 from app.services.structure import (
     LoopCtx, Structure, branch_key, copy_pairs, has_element_children, is_attribute, otherwise_key, relative_to_context,
 )
@@ -33,26 +33,37 @@ def _local(tag: str) -> str:
 
 
 # ---------------------------------------------------------------- inputs
-def _load_source(fmt: str, text: str) -> Any:
-    """Source document as either an ET root element (XML) or plain
-    dict/list data (JSON, CSV row, SWIFT fields)."""
-    if fmt == "xsd" or text.lstrip().startswith("<"):
+def _load_source(fmt: str, text: str, csv_header_row: Optional[int] = None,
+                 fields: Optional[list[FieldNode]] = None) -> Any:
+    """Source document as either an ET root element (XML) or plain dict/list data (JSON / YAML,
+    CSV row, SWIFT fields) — read the same way the parsers build the field tree."""
+    from app.services.parsers import ROOT_ARRAY, csv_table
+    if fmt in ("xsd", "xml") or text.lstrip().startswith("<"):
         try:
             return ET.fromstring(text.strip())
         except ET.ParseError as exc:
             raise TestRunError(f"Sample is not valid XML: {exc}") from exc
+    if fmt == "fixed":
+        return fixed_width.read_record(text, fields or [])
     if fmt == "csv":
-        lines = [l for l in text.splitlines() if l.strip()]
-        headers = [h.strip() for h in lines[0].split(",")]
-        row = lines[1].split(",") if len(lines) > 1 else []
+        try:
+            headers, data, _used = csv_table(text, csv_header_row)
+        except ValueError as exc:
+            raise TestRunError(f"CSV sample: {exc}") from exc
+        row = data[0] if data else []
         return {h: (row[i].strip() if i < len(row) else "") for i, h in enumerate(headers)}
     if fmt == "swift":
-        return {swift_field_name(m.group(1)): m.group(2)
-                for m in re.finditer(r"^:(\d{2}[A-Z]?):(.*)$", text, re.MULTILINE)}
+        from app.services.swift_mt import extract_values
+        return extract_values(text)
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise TestRunError(f"Sample is not valid JSON: {exc}") from exc
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            import yaml
+            data = yaml.safe_load(text)
+        except Exception as exc:  # noqa: BLE001
+            raise TestRunError(f"Sample is not valid JSON: {exc}") from exc
+    return {ROOT_ARRAY: data} if isinstance(data, list) else data
 
 
 def _children(node: Any, name: str) -> list[Any]:
@@ -71,6 +82,8 @@ def _text(node: Any) -> Any:
         return _text(node.doc)
     if isinstance(node, ET.Element):
         return "".join(node.itertext()) if len(node) else (node.text or "")
+    if isinstance(node, dict) and "Value" in node:
+        return node["Value"]  # a composite SWIFT field read as a whole: its raw value
     if isinstance(node, (dict, list)):
         return json.dumps(node)
     return node
@@ -156,6 +169,7 @@ class Evaluator(EvalEnv):
         self.vars: dict[str, Any] = {}
         self.items: dict[LoopCtx, tuple[Loc, int, int]] = {}  # loop -> (item, index, count)
         self.groups: dict[LoopCtx, tuple[list[Loc], Any]] = {}  # for-each-group -> (members, key)
+        self.node_vars: dict[str, list[Loc]] = {}  # node-typed variables
         self.cur: list[LoopCtx] = []
 
     # ------------------------------------------------------- navigation
@@ -185,6 +199,11 @@ class Evaluator(EvalEnv):
         return out
 
     def locate_ref(self, ref: ExprNode, ctx: list[LoopCtx]) -> list[Loc]:
+        if ref.absolute and ref.source_id in self.node_vars and ref.source_id not in self.s.source_ids:
+            locs = list(self.node_vars[ref.source_id])  # $party/Name
+            for step in ref.steps:
+                locs = self._step(locs, step)
+            return locs
         if ref.group:  # current-group()/...
             loop = next((c for c in reversed(ctx) if c in self.groups), None)
             locs = list(self.groups[loop][0]) if loop else []
@@ -210,6 +229,8 @@ class Evaluator(EvalEnv):
         return locs
 
     def locate(self, expr: ExprNode, inputs: list[SourceRef], ctx: list[LoopCtx]) -> list[Loc]:
+        if expr.type == "var" and expr.name in self.node_vars:
+            return list(self.node_vars[expr.name])
         if expr.type == "placeholder":
             return self.locate_input(inputs[expr.index], ctx) if expr.index < len(inputs) else []
         if expr.type == "ref":
@@ -228,6 +249,23 @@ class Evaluator(EvalEnv):
 
     def last(self) -> int:
         return self.items[self.cur[-1]][2] if self.cur and self.cur[-1] in self.items else 1
+
+    def var_nodes(self, name: str):
+        locs = self.node_vars.get(name)
+        return [n for n, _ in locs] if locs is not None else None
+
+    def assign(self, name: str, var_type: str, text: str, inputs: list[SourceRef], ctx: list[LoopCtx]) -> None:
+        """Evaluates a variable and converts it to its data type (same rules as the XSLT)."""
+        expr = parse_expr(text if text.strip() else ("{0}" if inputs else "''"))
+        if var_type == "node":
+            locs = self.locate(expr, inputs, ctx)
+            if expr.type == "var" and expr.name in self.node_vars:
+                locs = list(self.node_vars[expr.name])
+            self.node_vars[name] = locs
+            self.vars[name] = _text(locs[0][0]) if locs else ""
+            return
+        self.node_vars.pop(name, None)
+        self.vars[name] = _cast(self.evaluate(expr, inputs, ctx), var_type)
 
     def grouping_key(self) -> Any:
         loop = next((c for c in reversed(self.cur) if c in self.groups), None)
@@ -276,6 +314,10 @@ class Evaluator(EvalEnv):
             else:
                 self.items.pop(loop, None)
             return out
+        if st.kind == "variable":
+            if st.name:
+                self.assign(st.name, st.var_type, st.select, st.inputs, ctx)
+            return self.wrap(n, rest, ctx, scopes, override)
         if st.kind == "for-each-group":
             sel = self.s.select_expr(st)
             loop = self.s.loop_for(st, ctx)
@@ -387,8 +429,8 @@ class Evaluator(EvalEnv):
 
     def run(self) -> list[Out]:
         for v in self.ws.variables:
-            expr = parse_expr(v.transform if v.transform.strip() else ("{0}" if v.inputs else "''"))
-            self.vars[v.name] = self.evaluate(expr, v.inputs, [])
+            if v.name:
+                self.assign(v.name, v.var_type, v.transform, v.inputs, [])
         rc = self.ws.root_condition
         if rc.transform.strip():
             node = parse_expr(rc.transform)
@@ -396,6 +438,24 @@ class Evaluator(EvalEnv):
             if not _truthy(self.evaluate(cond, rc.inputs, [])):
                 return []
         return self.nodes(self.ws.target.fields, [], [])
+
+
+def _cast(v: Any, var_type: str) -> Any:
+    """A variable's value converted to its data type."""
+    import math
+    if var_type == "boolean":
+        return _truthy(v) if not isinstance(v, str) else v.strip().lower() in ("true", "1")
+    if var_type in ("integer", "number"):
+        try:
+            f = float(str(v).replace(",", ".")) if v not in (None, "") else None
+        except ValueError:
+            return None
+        if f is None or math.isnan(f):
+            return None
+        return int(f) if var_type == "integer" else f
+    if var_type == "date":
+        return (_str(v) or "")[:10]
+    return _str(v) or ""
 
 
 def _str(v: Any) -> Optional[str]:
@@ -417,8 +477,21 @@ def run_processor(ws: MappingWorkspace, sample_inputs: dict[str, str], output_fo
         if not text:
             warnings.append(f"No sample for {s.label} — its fields evaluate as empty.")
             continue
-        docs[s.id] = _load_source(s.type, text)
+        docs[s.id] = _load_source(s.type, text, s.csv_header_row, s.fields)
     outs = Evaluator(ws, docs).run()
+    if ws.target.type in ("swift", "fixed"):
+        # Same shape as the generated XSLT: <SwiftMessage> / <Record>, written as text unless XML is chosen.
+        from app.services.xslt_gen import text_output
+        mt = swift_mt.tree_message_type(ws.target.fields) if ws.target.type == "swift" else ""
+        wrapper = swift_mt.WRAPPER if ws.target.type == "swift" else fixed_width.WRAPPER
+        attr = f' type="MT{mt}"' if mt else ""
+        body = _xml(outs, 1, None) if outs else ""
+        xml = f'<?xml version="1.0" encoding="UTF-8"?>\n<{wrapper}{attr}>\n{body}\n</{wrapper}>'
+        if not text_output(ws):
+            return xml, warnings
+        if ws.target.type == "swift":
+            return swift_mt.write_mt(xml, mt), warnings
+        return fixed_width.write_record(xml, ws.target.fields), warnings
     if output_format == "xml":
         body = _xml(outs, 0, ws.target.namespace) if outs else "<!-- empty result -->"
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + body, warnings
@@ -494,7 +567,10 @@ def _run_lxml(xslt_text: str, sample: str, warnings: list[str]) -> str:
         raise TestRunError(f"XSLT failed at runtime: {exc}") from exc
     for entry in transform.error_log:
         warnings.append(str(entry.message))
-    return str(result) if result.getroot() is not None else "<!-- XSLT produced no output -->"
+    if result.getroot() is None:  # text output (SWIFT MT) has no root element
+        text = str(result)
+        return text if text.strip() else "<!-- XSLT produced no output -->"
+    return str(result)
 
 
 def _flatten(nodes: list[FieldNode]) -> list[FieldNode]:

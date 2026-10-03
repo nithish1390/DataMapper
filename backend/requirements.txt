@@ -9,3 +9,4 @@ openai>=1.40
 python-dotenv>=1.0
 lxml>=5.0
 saxonche>=12.5
+pyyaml>=6.0
